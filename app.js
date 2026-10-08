@@ -1,4 +1,7 @@
-const API_BASE = new URLSearchParams(location.search).get('api') || 'https://USERNAME-grid-gnn-api.hf.space';
+const params = new URLSearchParams(location.search);
+// explicit ?api= wins; otherwise default to the local API when the page itself is served locally
+const API_BASE = params.get('api') ||
+  (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://localhost:8001' : 'https://USERNAME-grid-gnn-api.hf.space');
 document.getElementById('api-link').href = API_BASE;
 document.getElementById('docs-link').href = API_BASE + '/docs';
 
@@ -6,18 +9,35 @@ const $ = id => document.getElementById(id);
 const fmt = (v, d = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function setStatus(msg, err = false) { $('status').textContent = msg; $('status').className = 'status' + (err ? ' err' : ''); }
+function setStatus(msg, err = false) {
+  const el = $('status');
+  el.textContent = msg;
+  el.className = 'status' + (err ? ' err' : '');
+}
 
-async function fetchWithRetry(url, opts, attempts = 6) {
+function setBusy(busy) {
+  $('run').disabled = busy;
+  $('run').setAttribute('aria-busy', busy);
+  $('run-spin').hidden = !busy;
+  $('run-label').textContent = busy ? 'Scoring…' : 'Run scoring';
+}
+
+/* fetch with cold-start retries + per-attempt timeout */
+async function fetchWithRetry(url, opts = {}, attempts = 6) {
   for (let i = 0; i < attempts; i++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 60000);
     try {
-      const r = await fetch(url, opts);
+      const r = await fetch(url, { ...opts, signal: ac.signal });
       if (r.status === 502 || r.status === 503) throw new Error('backend waking');
       return r;
     } catch (e) {
+      if (e.name === 'AbortError') throw new Error('request timed out — backend unreachable');
       if (i === attempts - 1) throw e;
       setStatus(`Backend is waking up (free tier cold start) — retry ${i + 1}/${attempts} in 15 s…`);
       await new Promise(res => setTimeout(res, 15000));
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
@@ -27,8 +47,15 @@ async function boot() {
   try {
     const r = await fetchWithRetry(API_BASE + '/health');
     const h = await r.json();
-    if (h.model) $('model').value = h.model;
-    if (h.config_hash) $('badge-config').textContent = 'config ' + h.config_hash;
+    if (h.model) { $('model').value = h.model; $('badge-model').textContent = 'model ' + h.model; }
+    if (h.profile_source) {
+      $('badge-source').textContent =
+        h.profile_source === 'synthetic_fallback' ? 'data: synthetic (demo)' : 'data: ' + h.profile_source;
+    }
+    if (h.config_hash) {
+      $('badge-config').textContent = 'config ' + h.config_hash;
+      $('badge-config').title = 'Configuration hash: identifies the exact scenario/config bundle the backend was launched with.\nconfig_hash: ' + h.config_hash;
+    }
     setStatus(`Backend ready — selected model ${h.model}.`);
   } catch (e) {
     setStatus(`Cannot reach backend at ${API_BASE} — deploy the Space or pass ?api=<url>.`, true);
@@ -36,8 +63,7 @@ async function boot() {
 }
 
 async function run() {
-  const btn = $('run');
-  btn.disabled = true;
+  setBusy(true);
   setStatus('Scoring…');
   const body = {
     model: $('model').value,
@@ -55,30 +81,49 @@ async function run() {
       const d = await r.json().catch(() => ({}));
       throw new Error(d.detail || ('HTTP ' + r.status));
     }
-    render(await r.json());
-    setStatus('Done.');
+    const j = await r.json();
+    render(j);
+    const flagged = j.meters.filter(m => m.inspection_flag).length;
+    setStatus(`Done — ${flagged} of ${j.meters.length} meters flagged in ${fmt(j.runtime_seconds, 2)} s. Full ranked list below.`);
+    // take the user straight to the results so it's obvious the run completed
+    location.hash = '#/meters';
+    navigate();
   } catch (e) {
     setStatus('Scoring failed: ' + e.message, true);
   } finally {
-    btn.disabled = false;
+    setBusy(false);
   }
 }
 
-function render(j) {
-  $('badge-sha').textContent = 'model sha ' + (j.model_sha256 || '—').slice(0, 12);
-  const op = j.operating_point || {};
+/* ---------- meters table: filter + sort state ---------- */
+let lastResponse = null;
+let sortKey = 'rank', sortDir = 1, flagOnly = false;
+
+function renderMeters(j) {
+  let rows = [...j.meters];
+  if (flagOnly) rows = rows.filter(m => m.inspection_flag);
+  rows.sort((a, b) => {
+    const va = a[sortKey], vb = b[sortKey];
+    const c = (typeof va === 'string' || typeof vb === 'string')
+      ? String(va).localeCompare(String(vb), undefined, { numeric: true })
+      : va - vb;
+    return c * sortDir;
+  });
+
+  document.querySelectorAll('#meters-table th.sort').forEach(th => {
+    th.classList.toggle('active', th.dataset.key === sortKey);
+    th.classList.toggle('desc', th.dataset.key === sortKey && sortDir === -1);
+    th.setAttribute('aria-sort',
+      th.dataset.key === sortKey ? (sortDir === 1 ? 'ascending' : 'descending') : 'none');
+  });
+
   const flagged = j.meters.filter(m => m.inspection_flag).length;
-  $('kpi-flag').textContent = flagged;
-  $('kpi-top').textContent = fmt(j.dts[0]?.unexplained_kwh, 1);
-  $('kpi-thresh').textContent = fmt(op.threshold, 3);
-  $('kpi-rt').textContent = fmt(j.runtime_seconds, 2);
-  $('op-note').textContent = op.validation_target_met === false
-    ? 'The validation precision target was unattainable for this model — inspection flags are disabled.'
-    : 'Operating point targets the predeclared validation precision; probabilities are decision-support scores, not field-validated probabilities.';
+  $('meter-count').textContent =
+    `showing ${rows.length} of ${j.meters.length} meters · ${flagged} flagged`;
 
   const tb = $('meters-table').tBodies[0];
   tb.innerHTML = '';
-  for (const m of j.meters) {
+  for (const m of rows) {
     const tr = document.createElement('tr');
     if (m.inspection_flag) tr.className = 'flag-row';
     tr.innerHTML = `<td>${m.rank}</td><td>${esc(m.meter_id)}</td><td>${m.dt_id}</td>` +
@@ -88,6 +133,26 @@ function render(j) {
       `<td>${fmt(m.missing_fraction, 2)}</td><td>${esc((m.reason_codes || []).join('; ')) || '—'}</td>`;
     tb.appendChild(tr);
   }
+}
+
+function render(j) {
+  lastResponse = j;
+  const sha = j.model_sha256 || '';
+  $('badge-sha').textContent = 'sha ' + (sha ? sha.slice(0, 12) : '—');
+  $('badge-sha').title = sha
+    ? 'SHA-256 of the loaded model artifact (models.joblib).\nFull hash: ' + sha
+    : 'No model hash in the response.';
+  $('badge-model').textContent = 'model ' + $('model').value;
+  const op = j.operating_point || {};
+  $('kpi-flag').textContent = j.meters.filter(m => m.inspection_flag).length;
+  $('kpi-top').textContent = fmt(j.dts[0]?.unexplained_kwh, 1);
+  $('kpi-thresh').textContent = fmt(op.threshold, 3);
+  $('kpi-rt').textContent = fmt(j.runtime_seconds, 2);
+  $('op-note').textContent = op.validation_target_met === false
+    ? 'The validation precision target was unattainable for this model — inspection flags are disabled.'
+    : 'Operating point targets the predeclared validation precision; probabilities are decision-support scores, not field-validated probabilities.';
+
+  renderMeters(j);
 
   const dtb = $('dts-table').tBodies[0];
   dtb.innerHTML = '';
@@ -105,14 +170,19 @@ function render(j) {
   pick.innerHTML = '<option value="all">all DTs</option>' + dts.map(d => `<option value="${d}">DT ${d}</option>`).join('');
   if (dts.includes(cur)) pick.value = cur;
 
+  const prevMeter = $('meter').value;
   const ms = j.meters.map(m => `<option value="${esc(m.meter_id)}">${esc(m.meter_id)} (DT ${m.dt_id})</option>`).join('');
-  $('meter').innerHTML = '<option value="">first meter</option>' + ms;
-  if (j.scenario && j.scenario !== 'none') $('meter').value = j.meters[0]?.meter_id || '';
+  $('meter').innerHTML = '<option value="">first ranked meter</option>' + ms;
+  const hasPrev = [...$('meter').options].some(o => o.value === prevMeter);
+  if (hasPrev) $('meter').value = prevMeter;
+  else if (j.scenario && j.scenario !== 'none') $('meter').value = j.meters[0]?.meter_id || '';
 
   drawBalance(j);
   drawExplanation(j);
 
   $('notes').innerHTML = (j.notes || []).map(n => `<li>${esc(n)}</li>`).join('');
+
+  navigate(); // re-sync route views now that data exists (hides empty states)
 }
 
 function drawBalance(j) {
@@ -129,13 +199,19 @@ function drawBalance(j) {
   const x = Object.keys(agg).sort();
   const g = v => x.map(k => Number(agg[k][v].toFixed(2)));
   const traces = [
-    { x, y: g('obs'), name: 'observed consumer kWh', type: 'bar', stackgroup: 's', marker: { color: '#2463eb' } },
-    { x, y: g('imp'), name: 'imputed consumer kWh', type: 'bar', stackgroup: 's', marker: { color: '#9db8e8' } },
-    { x, y: g('tech'), name: 'estimated technical kWh', type: 'bar', stackgroup: 's', marker: { color: '#c9d6a3' } },
-    { x, y: g('res'), name: 'residual kWh (unexplained)', type: 'scatter', mode: 'lines', line: { color: '#b42318', width: 2 } },
+    { x, y: g('obs'), name: 'observed consumer kWh', type: 'bar', stackgroup: 's', marker: { color: '#8f8f8f' } },
+    { x, y: g('imp'), name: 'imputed consumer kWh', type: 'bar', stackgroup: 's', marker: { color: '#4d4d4d' } },
+    { x, y: g('tech'), name: 'estimated technical kWh', type: 'bar', stackgroup: 's', marker: { color: '#2b2b2b' } },
+    { x, y: g('res'), name: 'residual kWh (unexplained)', type: 'scatter', mode: 'lines', line: { color: '#ef4444', width: 2 } },
   ];
-  const layout = { margin: { l: 60, r: 16, t: 10, b: 40 }, barmode: 'stack', height: 340,
-    legend: { orientation: 'h', y: -0.18 }, yaxis: { title: 'kWh / day' }, xaxis: { title: 'day' } };
+  const layout = {
+    margin: { l: 60, r: 16, t: 10, b: 40 }, barmode: 'stack', height: 340,
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: '#d4d4d4' },
+    legend: { orientation: 'h', y: -0.18, font: { color: '#8f8f8f' } },
+    yaxis: { title: 'kWh / day', gridcolor: '#262626', zerolinecolor: '#262626' },
+    xaxis: { title: 'day', gridcolor: '#262626' },
+  };
   Plotly.newPlot('balance-chart', traces, layout, { responsive: true, displayModeBar: false });
 }
 
@@ -153,15 +229,48 @@ function drawExplanation(j) {
   Plotly.newPlot('expl-chart', [{
     type: 'bar', orientation: 'h',
     x: order.map(p => Number(p[1].toFixed(4))), y: order.map(p => p[0]),
-    marker: { color: order.map(p => p[1] >= 0 ? '#b42318' : '#067647') },
+    marker: { color: order.map(p => p[1] >= 0 ? '#ef4444' : '#5c5c5c') },
   }], { margin: { l: 190, r: 16, t: 10, b: 40 }, height: 40 + 26 * order.length,
-    xaxis: { title: 'Shapley contribution to p(theft)' } }, { responsive: true, displayModeBar: false });
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: '#d4d4d4' },
+    xaxis: { title: 'Shapley contribution to p(theft)', gridcolor: '#262626', zerolinecolor: '#4d4d4d' } },
+    { responsive: true, displayModeBar: false });
 }
 
+/* ---------- hash router (static-host friendly) ---------- */
+const ROUTES = ['run', 'meters', 'dts', 'charts', 'about'];
+function currentRoute() {
+  const m = location.hash.match(/^#\/(\w+)/);
+  return m && ROUTES.includes(m[1]) ? m[1] : 'run';
+}
+function navigate() {
+  const r = currentRoute();
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('hidden', v.id !== 'view-' + r));
+  document.querySelectorAll('#nav .tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.route === r);
+    t.setAttribute('aria-current', t.dataset.route === r ? 'page' : 'false');
+  });
+  const has = !!lastResponse;
+  $('empty-meters').hidden = has;
+  $('empty-dts').hidden = has;
+  $('empty-charts').hidden = has;
+  window.scrollTo(0, 0); // each route starts at the top
+  // Plotly renders wrongly inside display:none containers — redraw when charts become visible
+  if (r === 'charts' && has) { drawBalance(lastResponse); drawExplanation(lastResponse); }
+}
+window.addEventListener('hashchange', navigate);
+
+/* ---------- wiring ---------- */
 $('severity').addEventListener('input', () => $('sev-val').textContent = parseFloat($('severity').value).toFixed(2));
 $('run').addEventListener('click', run);
-let lastResponse = null;
-const _origRender = render;
-render = function (j) { lastResponse = j; _origRender(j); };
 $('dt-pick').addEventListener('change', () => { if (lastResponse) drawBalance(lastResponse); });
+$('flag-only').addEventListener('change', e => { flagOnly = e.target.checked; if (lastResponse) renderMeters(lastResponse); });
+document.querySelectorAll('#meters-table th.sort').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.key;
+    if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
+    if (lastResponse) renderMeters(lastResponse);
+  });
+});
+navigate(); // apply initial route
 boot();
