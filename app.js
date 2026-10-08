@@ -577,7 +577,7 @@ function downloadCSV() {
 /* ---------- router ---------- */
 const ROUTES = {
   '': 'home', 'home': 'home', 'models': 'models', 'results': 'results',
-  'how': 'how', 'evidence': 'evidence', 'about': 'about',
+  'how': 'how', 'evidence': 'evidence', 'about': 'about', 'team': 'team',
   'run': 'models',                       // legacy alias
   'meters': 'results', 'dts': 'results', 'charts': 'results', // legacy aliases → tabs
 };
@@ -588,6 +588,7 @@ const TITLES = {
   how: 'Grid-GNN — How it works',
   evidence: 'Grid-GNN — Evidence and limits',
   about: 'Grid-GNN — Provenance and governance',
+  team: 'Grid-GNN — The team',
 };
 const LEGACY_TAB = { meters: 'meters', dts: 'dts', charts: 'balance' };
 
@@ -707,6 +708,15 @@ document.querySelector('.tabs').addEventListener('keydown', e => {
   const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
   n.focus(); activateTab(n.dataset.tab); e.preventDefault();
 });
+
+/* team page: know-more toggles */
+document.querySelectorAll('.know-more').forEach(b => b.addEventListener('click', () => {
+  const bio = b.parentElement.querySelector('.bio');
+  const open = !bio.classList.contains('hidden');
+  bio.classList.toggle('hidden', open);
+  b.textContent = open ? 'Know more' : 'Show less';
+  b.setAttribute('aria-expanded', String(!open));
+}));
 
 /* ---------- init ---------- */
 selectScenario('theft');
