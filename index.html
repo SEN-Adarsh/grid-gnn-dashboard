@@ -60,7 +60,7 @@
   <div class="value-cards">
     <div class="card vcard"><h3>Rank</h3><p>An ordered list of meters to review first, each with a suspicion score and the reasons behind it.</p></div>
     <div class="card vcard"><h3>Locate</h3><p>Unexplained kWh at every distribution transformer — where energy was delivered but never billed.</p></div>
-    <div class="card vcard"><h3>Explain</h3><p>Why a meter ranks high, with full traceability: model hash, config hash, and audit trail. <span class="muted">(Model-dependent)</span></p></div>
+    <div class="card vcard"><h3>Trace</h3><p>Every result carries the model hash, config hash, and an audit trail — full accountability for each run.</p></div>
   </div>
 
   <div class="card">
@@ -80,6 +80,7 @@
         <button class="btn small secondary hidden" id="btn-retry">Retry</button>
       </div>
     </div>
+    <p class="hint" style="margin:0 0 10px">The hosting container goes to sleep after ~15 minutes of inactivity. The first request may need <strong>30–40 seconds</strong> to wake it.</p>
     <div id="home-skeleton" class="skeleton" aria-hidden="true">
       <div class="sk-line w40"></div><div class="sk-line w70"></div><div class="sk-line w55"></div><div class="sk-line w70"></div>
     </div>
@@ -114,27 +115,6 @@
       <strong>M1 — IsolationForest</strong>
       <p>Flags meters that look unusual compared with their own history. No labels needed.</p>
       <span class="m-needs">Needs: own history</span>
-      <span class="m-state muted"></span>
-    </button>
-    <button class="card mcard" data-model="M2">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span><span class="m-tag tag-expl">Supports explanation</span>
-      <strong>M2 — RandomForest (own history)</strong>
-      <p>Best performer in our benchmark. Trained on each meter's own usage patterns.</p>
-      <span class="m-needs">Needs: own history</span>
-      <span class="m-state muted"></span>
-    </button>
-    <button class="card mcard" data-model="M3">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span><span class="m-tag tag-expl">Supports explanation</span>
-      <strong>M3 — RandomForest (+DT context)</strong>
-      <p>Same as M2 plus distribution-transformer context features.</p>
-      <span class="m-needs">Needs: own history + DT context</span>
-      <span class="m-state muted"></span>
-    </button>
-    <button class="card mcard" data-model="M4">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span>
-      <strong>M4 — TemporalGraphNet</strong>
-      <p>Graph model over the feeder topology. <em>In our benchmark it did not beat M3.</em></p>
-      <span class="m-needs">Needs: graph + history</span>
       <span class="m-state muted"></span>
     </button>
   </div>
@@ -292,7 +272,8 @@
 
     <div class="card tabpane hidden" id="pane-expl" role="tabpanel" aria-labelledby="tab-expl">
       <div id="expl-null" class="state-card warn hidden">
-        Explanations are available for M2 and M3 only. The current run used a model that does not produce them.
+        The loaded models (M0 / M1) do not produce per-meter explanations. This tab is reserved for
+        explanation-capable models if they are loaded into the artifact set later.
       </div>
       <div id="expl-body">
         <p class="quiet" id="expl-method"></p>
@@ -327,7 +308,7 @@
         <rect x="558" y="45" width="120" height="46" rx="8" class="svg-box"/><text x="618" y="63" text-anchor="middle">operating</text><text x="618" y="79" text-anchor="middle">point</text>
         <rect x="698" y="20" width="120" height="40" rx="8" class="svg-box brand"/><text x="758" y="44" text-anchor="middle">ranked flags</text>
         <rect x="698" y="80" width="120" height="40" rx="8" class="svg-box"/><text x="758" y="104" text-anchor="middle">DT balance</text>
-        <rect x="838" y="45" width="110" height="46" rx="8" class="svg-box"/><text x="893" y="63" text-anchor="middle">explanation</text><text x="893" y="79" text-anchor="middle">(M2/M3)</text>
+        <rect x="838" y="45" width="110" height="46" rx="8" class="svg-box"/><text x="893" y="63" text-anchor="middle">provenance</text><text x="893" y="79" text-anchor="middle">+ audit</text>
         <g stroke="#6B6F6A" fill="none" marker-end="url(#arr)">
           <path d="M128 68 L148 68"/><path d="M268 68 L288 68"/><path d="M408 68 L428 68"/><path d="M538 68 L558 68"/>
           <path d="M678 60 L698 40"/><path d="M678 76 L698 100"/><path d="M818 40 L838 62"/><path d="M818 100 L838 74"/>
@@ -361,7 +342,7 @@
   <div class="value-cards">
     <div class="card vcard"><h3>Label-free training</h3><p>Features come from each meter's own history and its neighbourhood — never from hidden theft labels.</p></div>
     <div class="card vcard"><h3>Predeclared precision target</h3><p>The flag threshold is fixed before evaluation against a 0.70 precision target. If the target is unattainable, flagging switches off.</p></div>
-    <div class="card vcard"><h3>Built-in explanation</h3><p>Where the model supports it, every score carries an additive attribution of the feature groups behind it.</p></div>
+    <div class="card vcard"><h3>Traceability &amp; audit</h3><p>Every response carries the model SHA-256, config hash, and an append-only audit entry: who ran what, when, with what result.</p></div>
   </div>
 
   <div class="card">
@@ -372,7 +353,6 @@
     <details><summary>AMI — advanced metering infrastructure</summary><p>Smart-metering system that reports consumption at short intervals. Dropout of AMI telemetry is one of the demo scenarios.</p></details>
     <details><summary>PR-AUC (not accuracy)</summary><p>Area under the precision–recall curve. We use it because flagged events are rare; accuracy would be misleadingly high for any model that flags nobody.</p></details>
     <details><summary>p(theft)</summary><p>The model's decision-support score for a meter. It is <strong>not</strong> a probability of guilt and is not field-validated.</p></details>
-    <details><summary>Attribution scores (Shapley)</summary><p>An additive decomposition of a model's output across feature groups. It explains the model's arithmetic; it is not a causal claim.</p></details>
     <details><summary>Precision target</summary><p>The share of flags that would be justified if inspected, fixed in advance (here 0.70) so thresholds cannot be tuned after seeing results.</p></details>
     <details><summary>FPR — false positive rate</summary><p>How often honest meters get flagged. On honest meter faults our pooled FPR was 47.3% — a measured risk, stated openly.</p></details>
   </div>
@@ -384,7 +364,7 @@
 
   <div class="card">
     <h2>Benchmark results</h2>
-    <p class="hint">Held-out DT-disjoint test set, 20 seeds.</p>
+    <p class="hint">Held-out DT-disjoint test set, 20 seeds. M2–M4 were evaluated in the underlying study; this deployment serves M0 and M1 only.</p>
     <table class="plain">
       <thead><tr><th>Result</th><th>Value</th></tr></thead>
       <tbody>
