@@ -352,14 +352,30 @@ async function run() {
 }
 
 /* ---------- guided demo ---------- */
+const wait = ms => new Promise(r => setTimeout(r, ms));
+let guidedRunning = false;
 async function guidedDemo() {
-  if (state.recommended) selectModel(state.recommended);
-  selectScenario('theft');
-  $('severity').value = '0.9'; $('sev-val').textContent = '0.90'; $('sev-mean').textContent = severityMeaning(0.9);
-  if (state.window) $('asof').value = state.window.max;
-  $('tamper').checked = true;
-  updateSummary();
-  await run();
+  if (guidedRunning) return;
+  guidedRunning = true;
+  try {
+    /* walk the user through the choices visibly instead of jumping blindly */
+    location.hash = '#/models'; navigate();
+    await wait(450);
+    if (state.recommended) selectModel(state.recommended);
+    selectScenario('theft');
+    $('severity').value = '0.9'; $('sev-val').textContent = '0.90'; $('sev-mean').textContent = severityMeaning(0.9);
+    if (state.window) $('asof').value = state.window.max;
+    $('tamper').checked = true;
+    /* clear stale filters so the results list is complete */
+    state.search = ''; $('meter-search').value = '';
+    flagOnly = false; $('flag-only').checked = false;
+    updateSummary();
+    toast(`Guided demo — ${state.model} · theft @ 0.90 + tamper. Running…`);
+    await wait(700);
+    await run();
+  } finally {
+    guidedRunning = false;
+  }
 }
 
 /* ---------- render ---------- */
