@@ -65,7 +65,7 @@ async function fetchWithRetry(url, opts = {}, attempts = 6, onAttempt = null) {
         throw new Error('no backend is reachable at ' + API_BASE + ' — it is not running. Start it, or view the sample data instead.');
       }
       if (i === attempts - 1) throw e;
-      const msg = `Waking the backend, attempt ${i + 1} of ${attempts}… — the hosting container sleeps after ~15 min of inactivity; it usually needs 30–40 seconds to wake up. Retrying in 15 s.`;
+      const msg = `Waking the hosting container (it sleeps after ~15 min of inactivity) — this usually takes 15–30 seconds. Attempt ${i + 1} of ${attempts}… stay on this page, your results will appear automatically.`;
       setDot('waking', 'waking…');
       if (onAttempt) onAttempt(msg);
       await new Promise(res => setTimeout(res, 15000));
@@ -140,7 +140,7 @@ async function boot() {
     $('home-skeleton').classList.add('hidden');
     const err = $('home-error');
     err.textContent = `The backend at ${API_BASE} could not be reached (${e.message}). ` +
-      'The hosting container goes to sleep after ~15 minutes of inactivity — please wait 30–40 seconds for it to wake up, then retry.';
+      'The hosting container goes to sleep after ~15 minutes of inactivity — please wait 15–30 seconds for it to wake up, then retry.';
     err.classList.remove('hidden');
     $('btn-retry').classList.remove('hidden');
     $('btn-sample').classList.remove('hidden');
