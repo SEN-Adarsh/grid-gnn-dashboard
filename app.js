@@ -5,7 +5,7 @@
 const params0 = new URLSearchParams(location.search);
 // explicit ?api= wins; otherwise default to the local API when served locally
 const API_BASE = params0.get('api') ||
-  (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://localhost:8001' : 'https://USERNAME-grid-gnn-api.hf.space');
+  (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://localhost:8001' : 'https://grid-gnn-api.onrender.com');
 document.getElementById('api-link').href = API_BASE;
 document.getElementById('docs-link').href = API_BASE + '/docs';
 
@@ -90,7 +90,7 @@ function applyHealthFields(h) {
     card.setAttribute('aria-disabled', String(!ok));
     card.querySelector('.m-state').textContent = ok ? '' : 'Not loaded in this dataset';
   });
-  const priority = ['M1', 'M0'];
+  const priority = ['M0', 'M1'];
   state.recommended = avail && avail.length ? priority.find(m => avail.includes(m)) : (h.model || 'M0');
   document.querySelectorAll('.mcard [data-tag="rec"]').forEach(t => t.classList.add('hidden'));
   const recCard = document.querySelector(`.mcard[data-model="${state.recommended}"]`);
@@ -151,7 +151,7 @@ async function boot() {
 /* ---------- sample mode (frontend-only preview; always clearly labelled) ---------- */
 const SAMPLE_HEALTH = {
   profile_source: 'synthetic_india_v2 (sample)',
-  model: 'M1',
+  model: 'M0',
   config_hash: 'sample-mode',
   models_available: ['M0', 'M1'],
   models_note: 'Sample mode — this note is static; no backend is connected.',
@@ -214,7 +214,7 @@ function makeSampleResponse(scenario, severity) {
       missing_fraction: 0.03 });
   }
   return {
-    model: state.model || 'M1', profile_source: 'synthetic_india_v2 (sample)',
+    model: state.model || 'M0', profile_source: 'synthetic_india_v2 (sample)',
     config_hash: 'sample-mode', model_sha256: 'sample00000000deadbeef00000000feedface000000',
     as_of_interval: 1344, as_of_time: '2026-06-14T23:45:00+05:30',
     telemetry_mode: 'recorded sample', scenario,
