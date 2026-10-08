@@ -59,12 +59,15 @@ async function fetchWithRetry(url, opts = {}, attempts = 6, onAttempt = null) {
       if (r.status === 502 || r.status === 503) throw new Error('backend waking');
       return r;
     } catch (e) {
-      if (e.name === 'AbortError') throw new Error('request timed out — backend unreachable');
+      if (e.name === 'AbortError') {           // host reachable, app slow → treat as waking
+        e = new Error('backend waking');
+      } else if (e instanceof TypeError) {     // connection refused / DNS → nothing is listening
+        throw new Error('no backend is reachable at ' + API_BASE + ' — it is not running. Start it, or view the sample data instead.');
+      }
       if (i === attempts - 1) throw e;
       const msg = `Waking the backend, attempt ${i + 1} of ${attempts}… — the hosting container sleeps after ~15 min of inactivity; it usually needs 30–40 seconds to wake up. Retrying in 15 s.`;
       setDot('waking', 'waking…');
       if (onAttempt) onAttempt(msg);
-      setStatus(msg);
       await new Promise(res => setTimeout(res, 15000));
     } finally {
       clearTimeout(timer);
@@ -292,6 +295,7 @@ function setBusy(busy) {
 function showRunState(which, msg) {
   $('run-progress').classList.toggle('hidden', which !== 'progress');
   $('run-error').classList.toggle('hidden', which !== 'error');
+  $('run-sample').classList.toggle('hidden', which !== 'error');
   if (which === 'progress') $('progress-msg').textContent = msg;
   if (which === 'error') $('run-error-msg').textContent = msg;
   if (which === null) { $('run-progress').classList.add('hidden'); $('run-error').classList.add('hidden'); }
@@ -336,7 +340,8 @@ async function run() {
     const flagged = j.meters.filter(m => m.inspection_flag).length;
     setStatus(`Done — ${flagged} of ${j.meters.length} meters met the operating point in ${fmt(j.runtime_seconds, 2)} s.`);
   } catch (e) {
-    showRunState('error', e.message + (String(e.message).includes('422') || e.message.length > 0 ? '' : ''));
+    showRunState('error', e.message);
+    $('run-sample').classList.remove('hidden');
     setStatus('Scoring failed: ' + e.message, true);
   } finally {
     setBusy(false);
@@ -651,6 +656,7 @@ $('empty-guided').addEventListener('click', guidedDemo);
 $('btn-retry').addEventListener('click', boot);
 $('btn-sample').addEventListener('click', loadSample);
 $('empty-sample').addEventListener('click', loadSample);
+$('run-sample').addEventListener('click', loadSample);
 $('exit-sample').addEventListener('click', exitSample);
 $('btn-csv').addEventListener('click', downloadCSV);
 $('flag-only').addEventListener('change', e => { flagOnly = e.target.checked; if (lastResponse) renderMeters(lastResponse); });
