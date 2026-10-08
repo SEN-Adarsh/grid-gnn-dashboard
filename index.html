@@ -1,113 +1,209 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Grid-GNN | NTL Workbench (Demo)</title>
-<link rel="stylesheet" href="style.css">
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Grid-GNN | NTL Workbench (Demo)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
 <header>
   <div>
     <h1>Grid-GNN <span class="thin">| NTL Workbench</span></h1>
-    <p class="sub">Inspection decision support demo &mdash; <strong>synthetic telemetry only</strong>, not validated for field use. A flag is a request to review evidence; a field inspector must verify every flag. No disconnection or penalty is automated.</p>
+    <p class="sub">Score a synthetic distribution network, review ranked inspection flags, and trace every decision end-to-end. <a href="#/about">How it works &amp; limits</a></p>
   </div>
   <div class="badges">
-    <span id="badge-source" class="badge">synthetic_fallback</span>
-    <span id="badge-config" class="badge quiet-badge">config &mdash;</span>
-    <span id="badge-sha" class="badge quiet-badge">model sha &mdash;</span>
+    <span id="badge-source" class="badge" title="Data provenance reported by the backend via /health. synthetic_fallback = demo profiles replayed from packaged assets; no field data.">data: synthetic (demo)</span>
+    <span id="badge-model" class="badge" title="Model selected by the backend on startup. You can override it in the Run panel.">model &mdash;</span>
+    <span id="badge-config" class="badge quiet-badge" title="Configuration hash: identifies the exact scenario/config bundle the backend was launched with. Changes whenever the backend config changes.">config &mdash;</span>
+    <span id="badge-sha" class="badge quiet-badge" title="SHA-256 fingerprint of the loaded model artifact file. Fill after the first scoring run; hover after a run to see the full hash.">sha &mdash; (run scoring)</span>
   </div>
 </header>
 
-<main>
-  <section id="controls" class="card">
-    <h2>Run scoring</h2>
-    <label>Model
-      <select id="model">
-        <option value="M0">M0 &mdash; untrained rule</option>
-        <option value="M1">M1 &mdash; IsolationForest (own history)</option>
-        <option value="M2">M2 &mdash; RandomForest (own history)</option>
-        <option value="M3">M3 &mdash; RandomForest (+DT context)</option>
-        <option value="M4">M4 &mdash; TemporalGraphNet</option>
-      </select>
-    </label>
-    <label>Scenario
-      <select id="scenario">
-        <option value="none">none &mdash; replay stored telemetry</option>
-        <option value="theft">theft &mdash; meter under-registration</option>
-        <option value="vacancy">vacancy &mdash; seasonal absence</option>
-        <option value="upstream_hooking">upstream hooking &mdash; unmetered LV load</option>
-        <option value="ami_dropout">AMI dropout &mdash; missing telemetry</option>
-      </select>
-    </label>
-    <label>Severity <span id="sev-val" class="val">0.70</span>
-      <input type="range" id="severity" min="0.2" max="0.95" step="0.05" value="0.7">
-    </label>
-    <label>Scoring prefix (quarter-hours)
-      <input type="number" id="asof" min="3552" max="5760" step="96" value="5760">
-    </label>
-    <label class="check"><input type="checkbox" id="tamper"> Append tamper event (theft scenario)</label>
-    <label>Target meter (for explanation)
-      <select id="meter"><option value="">first meter</option></select>
-    </label>
-    <button id="run">Run scoring</button>
-    <p id="status" class="status"></p>
-    <p class="quiet">Backend: <a id="api-link" href="#">HF Space API</a> &middot; <a id="docs-link" href="#">/docs</a> &middot; response includes model SHA-256 and config hash on every call.</p>
-  </section>
+<nav id="nav" aria-label="Sections">
+  <a href="#/run"     data-route="run"     class="tab active">Run</a>
+  <a href="#/meters"  data-route="meters"  class="tab">Ranked meters</a>
+  <a href="#/dts"     data-route="dts"     class="tab">Transformers</a>
+  <a href="#/charts"  data-route="charts"  class="tab">Charts</a>
+  <a href="#/about"   data-route="about"   class="tab">About &amp; provenance</a>
+</nav>
 
-  <section id="results">
+<main>
+  <!-- ================= RUN ================= -->
+  <section class="view" id="view-run">
+    <div class="feature-strip">
+      <span class="chip">5 scoring models &mdash; rule to graph</span>
+      <span class="chip">5 counterfactual scenarios</span>
+      <span class="chip">exact Shapley explanations</span>
+      <span class="chip">DT-level energy balance</span>
+      <span class="chip">SHA-256 + config provenance</span>
+      <span class="chip">human-in-the-loop by design</span>
+    </div>
+
+    <div class="card">
+      <h2>Run scoring</h2>
+      <div class="controls-grid">
+        <div class="group">
+          <h3>Model &amp; scenario</h3>
+          <label>Model
+            <select id="model" aria-label="Scoring model">
+              <option value="M0">M0 &mdash; untrained rule</option>
+              <option value="M1">M1 &mdash; IsolationForest (own history)</option>
+              <option value="M2">M2 &mdash; RandomForest (own history)</option>
+              <option value="M3">M3 &mdash; RandomForest (+DT context)</option>
+              <option value="M4">M4 &mdash; TemporalGraphNet</option>
+            </select>
+          </label>
+          <label>Scenario
+            <select id="scenario" aria-label="Synthetic scenario">
+              <option value="none">none &mdash; replay stored telemetry</option>
+              <option value="theft">theft &mdash; meter under-registration</option>
+              <option value="vacancy">vacancy &mdash; seasonal absence</option>
+              <option value="upstream_hooking">upstream hooking &mdash; unmetered LV load</option>
+              <option value="ami_dropout">AMI dropout &mdash; missing telemetry</option>
+            </select>
+          </label>
+          <label>Severity <span id="sev-val" class="val">0.70</span>
+            <input type="range" id="severity" min="0.2" max="0.95" step="0.05" value="0.7" aria-label="Scenario severity">
+          </label>
+          <label class="check"><input type="checkbox" id="tamper"> Append tamper event (theft scenario)</label>
+        </div>
+
+        <div class="group">
+          <h3>Run window</h3>
+          <label>Scoring prefix (quarter-hours)
+            <input type="number" id="asof" min="3552" max="5760" step="96" value="5760" aria-label="Scoring prefix interval">
+          </label>
+          <p class="hint" id="asof-hint">Valid range 3552&ndash;5760 intervals of stored history.</p>
+          <div class="group-spacer"></div>
+        </div>
+
+        <div class="group">
+          <h3>Explanation target</h3>
+          <label>Target meter
+            <select id="meter" aria-label="Target meter for explanation"><option value="">first ranked meter</option></select>
+          </label>
+          <p class="hint">Populated after a run. Empty &rarr; top-ranked meter is explained.</p>
+        </div>
+      </div>
+
+      <button id="run"><span id="run-spin" class="spin" hidden></span><span id="run-label">Run scoring</span></button>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <p class="quiet">Backend: <a id="api-link" href="#">HF Space API</a> &middot; <a id="docs-link" href="#">/docs</a> &middot; every response carries model SHA-256 + config hash.</p>
+    </div>
+
     <div id="kpis" class="kpis">
       <div class="kpi"><div class="kpi-num" id="kpi-flag">&ndash;</div><div class="kpi-label">inspection flags</div></div>
       <div class="kpi"><div class="kpi-num" id="kpi-top">&ndash;</div><div class="kpi-label">top unexplained DT kWh</div></div>
       <div class="kpi"><div class="kpi-num" id="kpi-thresh">&ndash;</div><div class="kpi-label">operating threshold</div></div>
       <div class="kpi"><div class="kpi-num" id="kpi-rt">&ndash;</div><div class="kpi-label">runtime s</div></div>
     </div>
+  </section>
 
+  <!-- ================= METERS ================= -->
+  <section class="view hidden" id="view-meters">
     <div class="card">
-      <h2>Ranked meters</h2>
+      <div class="card-head">
+        <h2>Ranked meters</h2>
+        <label class="check inline"><input type="checkbox" id="flag-only"> flagged only</label>
+      </div>
       <p class="quiet" id="op-note"></p>
+      <p class="quiet hint" id="meter-count"></p>
       <div class="scroll">
         <table id="meters-table">
-          <thead><tr><th>rank</th><th>meter</th><th>DT</th><th>p(theft)</th><th>flag</th><th>alloc kWh</th><th>rec/base</th><th>missing</th><th>reason codes</th></tr></thead>
+          <caption class="sr-only">Meters ranked by theft probability</caption>
+          <thead><tr>
+            <th data-key="rank" class="sort active">rank</th>
+            <th data-key="meter_id" class="sort">meter</th>
+            <th data-key="dt_id" class="sort">DT</th>
+            <th data-key="probability_simulated_theft" class="sort">p(theft)</th>
+            <th>flag</th>
+            <th data-key="candidate_kwh_allocation" class="sort">alloc kWh</th>
+            <th data-key="recorded_to_baseline_ratio" class="sort">rec/base</th>
+            <th data-key="missing_fraction" class="sort">missing</th>
+            <th>reason codes</th>
+          </tr></thead>
           <tbody></tbody>
         </table>
       </div>
+      <p class="quiet hint">Click a column header to sort.</p>
     </div>
+    <div class="empty" id="empty-meters" hidden>No results yet &mdash; <a href="#/run">run scoring</a> first.</div>
+  </section>
 
+  <!-- ================= DTs ================= -->
+  <section class="view hidden" id="view-dts">
     <div class="card">
       <h2>DT unexplained energy</h2>
-      <table id="dts-table">
-        <thead><tr><th>DT</th><th>unexplained kWh</th><th>allocated</th><th>unassigned</th><th>input kWh</th><th>technical est.</th><th>missing</th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <div class="scroll">
+        <table id="dts-table">
+          <caption class="sr-only">Distribution transformer energy balance</caption>
+          <thead><tr><th>DT</th><th>unexplained kWh</th><th>allocated</th><th>unassigned</th><th>input kWh</th><th>technical est.</th><th>missing</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
       <p class="quiet">Localisation is DT only for unmetered upstream load; no culprit inference between meters sharing a DT.</p>
     </div>
+    <div class="empty" id="empty-dts" hidden>No results yet &mdash; <a href="#/run">run scoring</a> first.</div>
+  </section>
 
+  <!-- ================= CHARTS ================= -->
+  <section class="view hidden" id="view-charts">
     <div class="card">
-      <h2>Daily energy balance</h2>
-      <label class="inline">DT
-        <select id="dt-pick"><option value="all">all DTs</option></select>
-      </label>
+      <div class="card-head">
+        <h2>Daily energy balance</h2>
+        <label class="inline">DT
+          <select id="dt-pick"><option value="all">all DTs</option></select>
+        </label>
+      </div>
       <div id="balance-chart"></div>
     </div>
-
     <div class="card" id="expl-card">
       <h2>Selected-meter explanation</h2>
       <p class="quiet" id="expl-method"></p>
       <div id="expl-chart"></div>
     </div>
+    <div class="empty" id="empty-charts" hidden>No results yet &mdash; <a href="#/run">run scoring</a> first.</div>
+  </section>
 
+  <!-- ================= ABOUT ================= -->
+  <section class="view hidden" id="view-about">
     <div class="card">
-      <h2>Provenance notes</h2>
+      <h2>Scope &amp; provenance</h2>
+      <ul class="about-list">
+        <li><strong>Synthetic data only.</strong> All telemetry is synthetic (<code>profile_source: synthetic_fallback</code>), replayed from packaged demo assets on a CIGRE-derived reference topology. There is <strong>no Indian field dataset</strong> in this system.</li>
+        <li><strong>Counterfactual scenarios.</strong> Theft / vacancy / hooking / dropout scenarios are demonstrations applied to stored telemetry; the stored source telemetry itself is never modified.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Model status &amp; evidence</h2>
+      <ul class="about-list">
+        <li><strong>Not field-validated.</strong> Probabilities are decision-support scores, not field-validated probabilities of theft.</li>
+        <li><strong>Benchmark</strong> (held-out DT-disjoint test, 20 seeds): M2 (own-history RF) PR-AUC 0.644 [0.584, 0.707].</li>
+        <li><strong>Graph model:</strong> M4 did <strong>not</strong> beat graph-free baselines (paired M4&minus;M3 &minus;0.041 [&minus;0.106, 0.049]). Voltage sensing: no established benefit.</li>
+        <li><strong>Known limitations:</strong> honest-fault pooled FPR 47.3%; low-consumption customers flagged 2.2&times; more often; 15.0% of hooking theft is invisible above the DT.</li>
+      </ul>
+      <p class="quiet">Full evidence chain in the project deck and handoff log.</p>
+    </div>
+    <div class="card">
+      <h2>Human-in-the-loop &amp; enforcement</h2>
+      <ul class="about-list">
+        <li><strong>A flag is a request to review evidence.</strong> A field inspector must verify every flag on site.</li>
+        <li><strong>No automated enforcement.</strong> No disconnection, penalty, or any other action is automated by this system.</li>
+        <li><strong>Ephemeral audit log.</strong> The <code>/score</code> audit log is written to container storage and resets on restart.</li>
+        <li><strong>Traceability.</strong> Every response carries the model SHA-256, config hash, and provenance notes.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Live provenance notes</h2>
+      <p class="quiet hint">Returned by the backend with every scoring run.</p>
       <ul id="notes"></ul>
     </div>
   </section>
 </main>
 
-<footer>
-  <p>Benchmark summary (held-out DT-disjoint test, 20 seeds): M2 (own-history RF) PR-AUC 0.644 [0.584, 0.707]; graph model M4 did <strong>not</strong> beat graph-free baselines (paired M4&minus;M3 &minus;0.041 [&minus;0.106, 0.049]). Voltage sensing: no established benefit. Honest-fault pooled FPR 47.3%; low-consumption customers flagged 2.2&times; more often. Known limitation: 15.0% of hooking theft is invisible above the DT. Full evidence chain in the project deck and handoff log.</p>
-</footer>
 <script src="app.js"></script>
 </body>
 </html>
