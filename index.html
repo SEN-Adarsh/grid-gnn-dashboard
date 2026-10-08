@@ -74,9 +74,9 @@
         <div class="group">
           <h3>Run window</h3>
           <label>Scoring prefix (quarter-hours)
-            <input type="number" id="asof" min="3552" max="5760" step="96" value="5760" aria-label="Scoring prefix interval">
+            <input type="number" id="asof" min="1344" max="1344" step="96" value="1344" aria-label="Scoring prefix interval">
           </label>
-          <p class="hint">Valid range 3552&ndash;5760 intervals of stored history.</p>
+          <p class="hint">The merged demo cohort scores the full 14-day stored window (1344 intervals = 7-day baseline + 7-day assessment). The range adapts automatically if the backend serves a different context.</p>
           <div class="group-spacer"></div>
         </div>
 

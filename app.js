@@ -74,14 +74,22 @@ async function run() {
   };
   if ($('meter').value) body.meter_id = $('meter').value;
   try {
-    const r = await fetchWithRetry(API_BASE + '/score', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    });
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      throw new Error(d.detail || ('HTTP ' + r.status));
+    try {
+      await scoreRequest(body);
+    } catch (e) {
+      // The backend's stored window depends on its deployed context (the
+      // merged demo cohort accepts only the full 1344-interval window).
+      // Learn the accepted range from the error and retry once.
+      const m = /prefix between (\d+) and (\d+)/.exec(e.message || '');
+      if (!m) throw e;
+      const lo = parseInt(m[1], 10), hi = parseInt(m[2], 10);
+      const asof = $('asof');
+      asof.min = lo; asof.max = hi; asof.value = Math.min(Math.max(parseInt(asof.value, 10) || hi, lo), hi);
+      setStatus(`Backend accepts intervals ${lo}–${hi} — retrying with ${asof.value}…`);
+      body.as_of_interval = asof.value;
+      await scoreRequest(body);
     }
-    const j = await r.json();
+    const j = lastResponse;
     render(j);
     const flagged = j.meters.filter(m => m.inspection_flag).length;
     setStatus(`Done — ${flagged} of ${j.meters.length} meters flagged in ${fmt(j.runtime_seconds, 2)} s. Full ranked list below.`);
@@ -93,6 +101,17 @@ async function run() {
   } finally {
     setBusy(false);
   }
+}
+
+async function scoreRequest(body) {
+  const r = await fetchWithRetry(API_BASE + '/score', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || ('HTTP ' + r.status));
+  }
+  lastResponse = await r.json();
 }
 
 /* ---------- meters table: filter + sort state ---------- */
