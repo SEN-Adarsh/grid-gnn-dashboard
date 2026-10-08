@@ -47,6 +47,25 @@ async function boot() {
   try {
     const r = await fetchWithRetry(API_BASE + '/health');
     const h = await r.json();
+    // Populate the model dropdown with what this backend actually fitted
+    // (the merged demo context serves the unsupervised M0/M1 only; the
+    // supervised M2-M4 need labels this dataset's inspection protocol
+    // cannot honestly provide). Static HTML options are the fallback.
+    if (Array.isArray(h.models) && h.models.length) {
+      const labels = {
+        M0: 'M0 — untrained rule',
+        M1: 'M1 — IsolationForest (own history)',
+        M2: 'M2 — RandomForest (own history)',
+        M3: 'M3 — RandomForest (+DT context)',
+        M4: 'M4 — TemporalGraphNet'
+      };
+      const sel = $('model');
+      const keep = sel.value;
+      sel.innerHTML = h.models.map(m =>
+        `<option value="${m}">${labels[m] || m}</option>`).join('');
+      sel.value = h.models.includes(keep) ? keep : h.model;
+      if (h.models_note) sel.title = 'Fitted on: ' + h.models_note;
+    }
     if (h.model) { $('model').value = h.model; $('badge-model').textContent = 'model ' + h.model; }
     if (h.profile_source) {
       $('badge-source').textContent =
