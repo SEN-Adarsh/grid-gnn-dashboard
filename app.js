@@ -1,7 +1,7 @@
 const params = new URLSearchParams(location.search);
 // explicit ?api= wins; otherwise default to the local API when the page itself is served locally
 const API_BASE = params.get('api') ||
-  (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://localhost:8001' : 'https://USERNAME-grid-gnn-api.hf.space');
+  (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://localhost:8001' : 'https://grid-gnn-api.onrender.com');
 document.getElementById('api-link').href = API_BASE;
 document.getElementById('docs-link').href = API_BASE + '/docs';
 
