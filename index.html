@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grid-GNN | NTL Workbench (Demo)</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Grid-GNN <span class="thin">| NTL Workbench</span></h1>
+    <p class="sub">Inspection decision support demo &mdash; <strong>synthetic telemetry only</strong>, not validated for field use. A flag is a request to review evidence; a field inspector must verify every flag. No disconnection or penalty is automated.</p>
+  </div>
+  <div class="badges">
+    <span id="badge-source" class="badge">synthetic_fallback</span>
+    <span id="badge-config" class="badge quiet-badge">config &mdash;</span>
+    <span id="badge-sha" class="badge quiet-badge">model sha &mdash;</span>
+  </div>
+</header>
+
+<main>
+  <section id="controls" class="card">
+    <h2>Run scoring</h2>
+    <label>Model
+      <select id="model">
+        <option value="M0">M0 &mdash; untrained rule</option>
+        <option value="M1">M1 &mdash; IsolationForest (own history)</option>
+        <option value="M2">M2 &mdash; RandomForest (own history)</option>
+        <option value="M3">M3 &mdash; RandomForest (+DT context)</option>
+        <option value="M4">M4 &mdash; TemporalGraphNet</option>
+      </select>
+    </label>
+    <label>Scenario
+      <select id="scenario">
+        <option value="none">none &mdash; replay stored telemetry</option>
+        <option value="theft">theft &mdash; meter under-registration</option>
+        <option value="vacancy">vacancy &mdash; seasonal absence</option>
+        <option value="upstream_hooking">upstream hooking &mdash; unmetered LV load</option>
+        <option value="ami_dropout">AMI dropout &mdash; missing telemetry</option>
+      </select>
+    </label>
+    <label>Severity <span id="sev-val" class="val">0.70</span>
+      <input type="range" id="severity" min="0.2" max="0.95" step="0.05" value="0.7">
+    </label>
+    <label>Scoring prefix (quarter-hours)
+      <input type="number" id="asof" min="3552" max="5760" step="96" value="5760">
+    </label>
+    <label class="check"><input type="checkbox" id="tamper"> Append tamper event (theft scenario)</label>
+    <label>Target meter (for explanation)
+      <select id="meter"><option value="">first meter</option></select>
+    </label>
+    <button id="run">Run scoring</button>
+    <p id="status" class="status"></p>
+    <p class="quiet">Backend: <a id="api-link" href="#">HF Space API</a> &middot; <a id="docs-link" href="#">/docs</a> &middot; response includes model SHA-256 and config hash on every call.</p>
+  </section>
+
+  <section id="results">
+    <div id="kpis" class="kpis">
+      <div class="kpi"><div class="kpi-num" id="kpi-flag">&ndash;</div><div class="kpi-label">inspection flags</div></div>
+      <div class="kpi"><div class="kpi-num" id="kpi-top">&ndash;</div><div class="kpi-label">top unexplained DT kWh</div></div>
+      <div class="kpi"><div class="kpi-num" id="kpi-thresh">&ndash;</div><div class="kpi-label">operating threshold</div></div>
+      <div class="kpi"><div class="kpi-num" id="kpi-rt">&ndash;</div><div class="kpi-label">runtime s</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Ranked meters</h2>
+      <p class="quiet" id="op-note"></p>
+      <div class="scroll">
+        <table id="meters-table">
+          <thead><tr><th>rank</th><th>meter</th><th>DT</th><th>p(theft)</th><th>flag</th><th>alloc kWh</th><th>rec/base</th><th>missing</th><th>reason codes</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>DT unexplained energy</h2>
+      <table id="dts-table">
+        <thead><tr><th>DT</th><th>unexplained kWh</th><th>allocated</th><th>unassigned</th><th>input kWh</th><th>technical est.</th><th>missing</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="quiet">Localisation is DT only for unmetered upstream load; no culprit inference between meters sharing a DT.</p>
+    </div>
+
+    <div class="card">
+      <h2>Daily energy balance</h2>
+      <label class="inline">DT
+        <select id="dt-pick"><option value="all">all DTs</option></select>
+      </label>
+      <div id="balance-chart"></div>
+    </div>
+
+    <div class="card" id="expl-card">
+      <h2>Selected-meter explanation</h2>
+      <p class="quiet" id="expl-method"></p>
+      <div id="expl-chart"></div>
+    </div>
+
+    <div class="card">
+      <h2>Provenance notes</h2>
+      <ul id="notes"></ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Benchmark summary (held-out DT-disjoint test, 20 seeds): M2 (own-history RF) PR-AUC 0.644 [0.584, 0.707]; graph model M4 did <strong>not</strong> beat graph-free baselines (paired M4&minus;M3 &minus;0.041 [&minus;0.106, 0.049]). Voltage sensing: no established benefit. Honest-fault pooled FPR 47.3%; low-consumption customers flagged 2.2&times; more often. Known limitation: 15.0% of hooking theft is invisible above the DT. Full evidence chain in the project deck and handoff log.</p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
