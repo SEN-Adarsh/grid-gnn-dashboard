@@ -339,6 +339,9 @@ async function run() {
     render(j);
     const flagged = j.meters.filter(m => m.inspection_flag).length;
     setStatus(`Done — ${flagged} of ${j.meters.length} meters met the operating point in ${fmt(j.runtime_seconds, 2)} s.`);
+    /* take the user to the results page — the data was rendered by render(j) above */
+    if (currentRoute() !== 'results') { location.hash = '#/results'; navigate(); }
+    else { navigate(); } // already there: just re-sync views/tabs
   } catch (e) {
     showRunState('error', e.message);
     $('run-sample').classList.remove('hidden');
