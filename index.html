@@ -259,6 +259,7 @@
         <span id="meter-count" class="muted"></span>
         <button class="btn small secondary" id="btn-csv" title="Ranked meters with action, owner, SLA and RDSS MIS code">Export RDSS MIS work-orders (CSV)</button>
         <button class="btn small secondary" id="btn-csv-dt" title="Transformer 4-way loss split with work orders">Transformer work-orders (CSV)</button>
+        <button class="btn small secondary" id="btn-filing" title="IES A1.7 DISCOM-Regulator Filing Object (JSON)">Download IES A1.7 Filing Object (JSON)</button>
       </div>
       <div class="scroll">
         <table id="meters-table">
@@ -449,17 +450,19 @@
   </div>
   <div class="card">
     <h2>India Energy Stack (IES) v0.4 alignment</h2>
-    <p class="hint">Built as a headless IES v0.4 scoring microservice for existing DISCOM MIS/ERP portals — this dashboard is the PMU verification &amp; audit workbench. No central database: raw data stays inside the host utility's MDM/SCADA.</p>
+    <p class="hint">Built as a headless IES v0.4 scoring microservice for existing DISCOM MIS/ERP portals — this dashboard is the PMU verification &amp; audit workbench. Stage 1: Validation Reference Implementation (IES v0.4 Section 6.2, Section 7, Pages 16-17). No central database: raw data stays inside the host utility's MDM/SCADA.</p>
     <table class="plain">
-      <thead><tr><th>IES building block</th><th>How this solution uses it</th></tr></thead>
+      <thead><tr><th>IES v0.4 Building Block (Pages 11-12)</th><th>Role</th><th>How this solution uses it</th></tr></thead>
       <tbody>
-        <tr><td>BB1 — Identity</td><td><code>meter_id</code> / <code>dt_id</code> map to federated asset &amp; consumer identifiers — cross-reference MDM, GIS and billing without centralising databases</td></tr>
-        <tr><td>BB3 — Interaction protocols</td><td>Stateless <code>POST /score</code> request/acknowledgement flow bound by <code>config_hash</code> + <code>model_sha256</code> (non-repudiable inference logs)</td></tr>
-        <tr><td>BB4 — Energy data exchange</td><td>15-minute AMI &amp; DT telemetry schema (<code>readings[]</code>, <code>dt_readings[]</code>); consent/purpose-bound interval arrays only — no PII, no central store</td></tr>
-        <tr><td>BB5 — Energy credentials</td><td>Append-only audit log with model/config provenance so an engineer can defend a vigilance ticket to a SERC regulator (Electricity Act s.126/s.135)</td></tr>
+        <tr><td>WHO — Identity &amp; Addressing</td><td>Core</td><td><code>meter_id</code> / <code>dt_id</code> map to federated asset &amp; consumer identifiers (A1.4, Page 23); prevents GIS-to-MDMS mismatches (Scenario 2, Page 7)</td></tr>
+        <tr><td>WHERE — Registries &amp; Directories</td><td>Supporting</td><td>DER Visibility Registry (A1.2, Page 22) for prosumer reverse-flow recognition; DISCOM MDMS/GIS endpoint discovery</td></tr>
+        <tr><td>HOW — Interaction Protocols</td><td>Core</td><td>Stateless <code>POST /score</code> flow bound by <code>config_hash</code> + <code>model_sha256</code> (ready for API Setu / OpenForge, Section 11, Page 20)</td></tr>
+        <tr><td>WHAT (Public) — Public Data Exchange</td><td>Supporting</td><td>Policy Pack (A1.6, Pages 23-24): AC power-flow conservation + 70%/50% precision thresholds with abstention; config_hash <code>6e60f7bd16aff2ef</code></td></tr>
+        <tr><td>WHAT (Private) — Permissioned Data Exchange</td><td>Core</td><td>15-minute AMI &amp; DT telemetry (<code>readings[]</code>, <code>dt_readings[]</code>); consent/purpose-bound, no PII, no central store (Data Federation, Page 10; NPSDP/DPDP, Pages 5, 20)</td></tr>
+        <tr><td>PROOF — Energy Credentials</td><td>Core</td><td>Append-only audit log exportable as IES A1.7 Filing Object (Pages 13, 24) for SERC loss-truing and Electricity Act s.126/s.135</td></tr>
       </tbody>
     </table>
-    <p class="quiet">Machine-readable manifest: <code>GET /ies/manifest</code> on the API · live alignment block in <code>GET /health</code>.</p>
+    <p class="quiet">Machine-readable manifest: <code>GET /ies/manifest</code> on the API · live alignment block in <code>GET /health</code>. Scenarios addressed: Scenario 2 (GIS mismatch, Page 7), Scenario 4 (integration loops, Pages 7-8). Risks addressed: Risk 2 (uneven AMI, Pages 20-21), Risk 5 (quality at scale, Pages 20-21).</p>
   </div>
   <div class="card">
     <h2>Team &amp; challenge</h2>

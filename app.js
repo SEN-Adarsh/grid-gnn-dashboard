@@ -623,6 +623,50 @@ function downloadDTCsv() {
   toast('Transformer work-order CSV exported');
 }
 
+function downloadFilingObject() {
+  if (!lastResponse) return;
+  const filing = {
+    standard: 'IES v0.4 A1.7 DISCOM-Regulator Filing Object',
+    timestamp: new Date().toISOString(),
+    config_hash: lastResponse.config_hash,
+    model_sha256: lastResponse.model_sha256,
+    model: lastResponse.model,
+    profile_source: lastResponse.profile_source,
+    scoring_window: lastResponse.scoring_window || null,
+    meters_count: lastResponse.meters.length,
+    dts_count: lastResponse.dts.length,
+    dt_loss_attribution: lastResponse.dts.map(d => ({
+      dt_id: d.dt_id,
+      input_kwh: d.input_kwh,
+      unexplained_kwh: d.unexplained_kwh,
+      technical_loss_kwh: (d.loss_attribution || {}).technical_loss_kwh,
+      meter_tamper_anomaly_kwh: (d.loss_attribution || {}).meter_tamper_anomaly_kwh,
+      defective_frozen_metering_kwh: (d.loss_attribution || {}).defective_frozen_metering_kwh,
+      unmetered_direct_hooking_kwh: (d.loss_attribution || {}).unmetered_direct_hooking_kwh,
+      recommended_action: d.recommended_action,
+      assigned_owner: d.assigned_owner,
+      target_sla: d.target_sla,
+      rdss_mis_code: d.rdss_mis_code,
+    })),
+    top_flagged_meters: lastResponse.meters.filter(m => m.inspection_flag).map(m => ({
+      meter_id: m.meter_id, dt_id: m.dt_id,
+      probability_simulated_theft: m.probability_simulated_theft,
+      reason_codes: m.reason_codes,
+      recommended_action: m.recommended_action,
+      assigned_owner: m.assigned_owner,
+      target_sla: m.target_sla,
+      rdss_mis_code: m.rdss_mis_code,
+    })),
+  };
+  const blob = new Blob([JSON.stringify(filing, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ies-a17-filing-object.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+  toast('IES A1.7 Filing Object exported');
+}
+
 /* ---------- router ---------- */
 const ROUTES = {
   '': 'home', 'home': 'home', 'models': 'models', 'results': 'results',
@@ -729,6 +773,7 @@ $('run-sample').addEventListener('click', loadSample);
 $('exit-sample').addEventListener('click', exitSample);
 $('btn-csv').addEventListener('click', downloadCSV);
 $('btn-csv-dt').addEventListener('click', downloadDTCsv);
+$('btn-filing').addEventListener('click', downloadFilingObject);
 $('flag-only').addEventListener('change', e => { flagOnly = e.target.checked; if (lastResponse) renderMeters(lastResponse); });
 $('meter-search').addEventListener('input', e => { state.search = e.target.value; if (lastResponse) renderMeters(lastResponse); });
 $('dt-pick').addEventListener('change', () => { if (lastResponse) drawBalance(lastResponse); });
