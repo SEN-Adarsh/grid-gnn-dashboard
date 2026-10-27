@@ -153,7 +153,7 @@ const SAMPLE_HEALTH = {
   profile_source: 'synthetic_india_v2 (sample)',
   model: 'M0',
   config_hash: 'sample-mode',
-  models_available: ['M0', 'M1'],
+  models_available: ['M0', 'M1', 'M2', 'M3', 'M4'],
   models_note: 'Sample mode — this note is static; no backend is connected.',
   scoring_window: { min: 1344, max: 1344 },
 };
@@ -169,11 +169,12 @@ function makeSampleResponse(scenario, severity) {
       probability_simulated_theft: 0.02 + rnd() * 0.33, inspection_flag: false,
       candidate_kwh_allocation: 0, recorded_to_baseline_ratio: 0.88 + rnd() * 0.24,
       missing_fraction: Math.round(rnd() * 8) / 100, reason_codes: [],
+      recommended_action: 'No action — remain in the monitoring pool', assigned_owner: 'MIS Analytics Desk', target_sla: 'Next monthly review', rdss_mis_code: 'RDSS-MON-00',
     });
   }
   const dts = [
-    { dt_id: 0, unexplained_kwh: 4.2, candidate_allocated_kwh: 0, unassigned_kwh: 4.2, input_kwh: 96.5, technical_loss_estimate_kwh: 1.1, missing_fraction: 0.03 },
-    { dt_id: 1, unexplained_kwh: 1.3, candidate_allocated_kwh: 0, unassigned_kwh: 1.3, input_kwh: 88.2, technical_loss_estimate_kwh: 1.0, missing_fraction: 0.02 },
+    { dt_id: 0, unexplained_kwh: 4.2, candidate_allocated_kwh: 0, unassigned_kwh: 4.2, input_kwh: 96.5, technical_loss_estimate_kwh: 1.1, missing_fraction: 0.03, loss_attribution: { technical_loss_kwh: 1.1, meter_tamper_anomaly_kwh: 0, defective_frozen_metering_kwh: 0, unmetered_direct_hooking_kwh: 4.2 }, recommended_action: 'Upstream LT line patrol for direct hooking / illegal tapping', assigned_owner: 'Feeder Line Patrolman & JE (Distribution)', target_sla: 'Within 72 hours (night/dawn patrol)', rdss_mis_code: 'RDSS-LT-HOOK' },
+    { dt_id: 1, unexplained_kwh: 1.3, candidate_allocated_kwh: 0, unassigned_kwh: 1.3, input_kwh: 88.2, technical_loss_estimate_kwh: 1.0, missing_fraction: 0.02, loss_attribution: { technical_loss_kwh: 1.0, meter_tamper_anomaly_kwh: 0, defective_frozen_metering_kwh: 0, unmetered_direct_hooking_kwh: 0 }, recommended_action: 'No action — remain in the monitoring pool', assigned_owner: 'MIS Analytics Desk', target_sla: 'Next monthly review', rdss_mis_code: 'RDSS-MON-00' },
   ];
   if (scenario === 'theft') {
     const m = meters[3];
@@ -183,6 +184,7 @@ function makeSampleResponse(scenario, severity) {
       `Recorded energy is ${m.recorded_to_baseline_ratio.toFixed(2)} times the own-history expectation.`,
       'Tamper-like event rate 1.00 per day; events are imperfect evidence.',
     ];
+    m.recommended_action = 'Physical vigilance raid and load check (Electricity Act s.135/s.126)'; m.assigned_owner = 'Sub-Division Vigilance Squad (AEE Enforcement)'; m.target_sla = 'Within 48 hours'; m.rdss_mis_code = 'RDSS-VIG-135';
   } else if (scenario === 'upstream_hooking') {
     dts[0].unexplained_kwh += 14 * severity;
     dts[0].unassigned_kwh = dts[0].unexplained_kwh;
@@ -191,6 +193,7 @@ function makeSampleResponse(scenario, severity) {
     const m = meters[7];
     m.missing_fraction = 0.9; m.probability_simulated_theft = Math.min(0.9, 0.3 + 0.3 * severity);
     m.reason_codes = ['Missing intervals: 90.0% of the assessment window.'];
+    m.recommended_action = 'Smart-meter health check and optical-port audit (non-theft fault)'; m.assigned_owner = 'AMI Meter Operations / AMISP Field Engineer'; m.target_sla = 'Next 7-day billing cycle'; m.rdss_mis_code = 'RDSS-AMI-MTR';
   } else { // none / vacancy — everything stays calm
     meters.forEach(m => { m.probability_simulated_theft = Math.min(m.probability_simulated_theft, 0.25); });
   }
@@ -414,10 +417,14 @@ function render(j) {
   for (const d of j.dts) {
     const tr = document.createElement('tr');
     const w = Math.max(2, Math.round(d.unexplained_kwh / maxUn * 100));
+    const la = d.loss_attribution || {};
     tr.innerHTML = `<td>${d.dt_id}</td><td>${fmt(d.unexplained_kwh, 1)}</td>` +
       `<td style="width:110px"><span class="pbar" style="width:90px"><span style="width:${w}%"></span></span></td>` +
       `<td>${fmt(d.candidate_allocated_kwh, 1)}</td><td>${fmt(d.unassigned_kwh, 1)}</td>` +
-      `<td>${fmt(d.input_kwh, 1)}</td><td>${fmt(d.technical_loss_estimate_kwh, 1)}</td><td>${fmt(d.missing_fraction, 2)}</td>`;
+      `<td>${fmt(d.input_kwh, 1)}</td><td>${fmt(d.technical_loss_estimate_kwh, 1)}</td><td>${fmt(d.missing_fraction, 2)}</td>` +
+      `<td>${fmt(la.meter_tamper_anomaly_kwh, 1)}</td><td>${fmt(la.defective_frozen_metering_kwh, 1)}</td>` +
+      `<td>${fmt(la.unmetered_direct_hooking_kwh, 1)}</td>` +
+      `<td title="${esc(d.recommended_action || '')}">${esc(d.rdss_mis_code || '—')}</td>`;
     dtb.appendChild(tr);
   }
 
@@ -435,7 +442,8 @@ function render(j) {
   if ([...$('meter').options].some(o => o.value === prevMeter)) $('meter').value = prevMeter;
 
   /* explanation tab availability */
-  const hasExpl = !!j.selected_meter_explanation;
+  const hasExpl = !!j.selected_meter_explanation ||
+    (j.model === 'M4' && (j.gnn_global_permutation_importance || []).length > 0);
   $('expl-null').classList.toggle('hidden', hasExpl);
   $('expl-body').classList.toggle('hidden', !hasExpl);
 
@@ -488,7 +496,10 @@ function renderMeters(j) {
       `<td><span class="pbar"><span style="width:${pct}%"></span></span><span class="mono">${fmt(m.probability_simulated_theft)}</span></td>` +
       `<td><span class="pill ${m.inspection_flag ? 'flag' : 'ok'}">${m.inspection_flag ? 'flag' : '—'}</span></td>` +
       `<td>${fmt(m.candidate_kwh_allocation, 1)}</td><td>${fmt(m.recorded_to_baseline_ratio, 2)}</td>` +
-      `<td>${fmt(m.missing_fraction, 2)}</td><td>${reasonChips(m.reason_codes)}</td>`;
+      `<td>${fmt(m.missing_fraction, 2)}</td><td>${reasonChips(m.reason_codes)}</td>` +
+      `<td title="${esc(m.recommended_action || '')}">${esc(m.recommended_action || '—')}</td>` +
+      `<td>${esc(m.assigned_owner || '—')}</td><td>${esc(m.target_sla || '—')}</td>` +
+      `<td class="mono">${esc(m.rdss_mis_code || '—')}</td>`;
     tb.appendChild(tr);
   }
 }
@@ -530,6 +541,24 @@ function drawExplanation(j) {
   const el = $('expl-chart');
   if (!el || el.offsetParent === null) { state.explDirty = true; return; }
   const e = j.selected_meter_explanation;
+  if ((!e || !e.group_names) && j.model === 'M4' && (j.gnn_global_permutation_importance || []).length) {
+    const rows = [...j.gnn_global_permutation_importance]
+      .sort((a, b) => b.validation_pr_auc_decrease - a.validation_pr_auc_decrease);
+    $('expl-method').textContent =
+      'Permutation importance on the validation split — sensitivity of the score to each feature group; not causal, not Shapley.';
+    Plotly.newPlot('expl-chart', [{
+      type: 'bar', orientation: 'h',
+      x: rows.map(r => Number(r.validation_pr_auc_decrease.toFixed(4))),
+      y: rows.map(r => r.group),
+      marker: { color: '#B4452A' },
+    }], {
+      margin: { l: 190, r: 16, t: 10, b: 40 }, height: 40 + 26 * rows.length,
+      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: PLOT_FONT,
+      xaxis: { title: 'validation PR-AUC decrease when the group is permuted', gridcolor: '#E5E0D5' },
+    }, { responsive: true, displayModeBar: false });
+    state.explDirty = false;
+    return;
+  }
   if (!e || !e.group_names) { state.explDirty = false; return; }
   $('expl-method').textContent = (e.method || '') +
     ` — reference score ${fmt(Array.isArray(e.reference_probability) ? e.reference_probability[0] : e.reference_probability)}` +
@@ -558,20 +587,40 @@ function refreshVisibleCharts() {
 }
 
 /* ---------- CSV export (client-side only) ---------- */
+function csvCell(v) { return `\"${String(v ?? '').replace(/\"/g, '\"\"')}\"`; }
+function saveCsv(filename, cols, rows) {
+  const lines = [cols.join(',')];
+  for (const r of rows) lines.push(cols.map(c => csvCell(Array.isArray(r[c]) ? r[c].join('; ') : r[c])).join(','));
+  const blob = new Blob([lines.join('\\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+}
 function downloadCSV() {
   if (!lastResponse) return;
   const cols = ['rank', 'meter_id', 'dt_id', 'probability_simulated_theft', 'inspection_flag',
-    'candidate_kwh_allocation', 'recorded_to_baseline_ratio', 'missing_fraction', 'reason_codes'];
-  const q = v => `"${String(v).replace(/"/g, '""')}"`;
-  const lines = [cols.join(',')];
-  for (const m of lastResponse.meters) lines.push(cols.map(c => q(Array.isArray(m[c]) ? m[c].join('; ') : m[c])).join(','));
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'grid-gnn-ranked-meters.csv';
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(a.href);
-  toast('CSV downloaded');
+    'candidate_kwh_allocation', 'recorded_to_baseline_ratio', 'missing_fraction', 'reason_codes',
+    'recommended_action', 'assigned_owner', 'target_sla', 'rdss_mis_code',
+    'model_sha256', 'config_hash'];
+  const rows = lastResponse.meters.map(m => ({ ...m,
+    model_sha256: lastResponse.model_sha256, config_hash: lastResponse.config_hash }));
+  saveCsv('rdss-mis-work-orders.csv', cols, rows);
+  toast('RDSS MIS work-order CSV exported');
+}
+function downloadDTCsv() {
+  if (!lastResponse) return;
+  const cols = ['dt_id', 'input_kwh', 'technical_loss_estimate_kwh', 'unexplained_kwh',
+    'candidate_allocated_kwh', 'unassigned_kwh', 'missing_fraction',
+    'technical_loss_kwh', 'meter_tamper_anomaly_kwh', 'defective_frozen_metering_kwh',
+    'unmetered_direct_hooking_kwh',
+    'recommended_action', 'assigned_owner', 'target_sla', 'rdss_mis_code',
+    'model_sha256', 'config_hash'];
+  const rows = lastResponse.dts.map(d => ({ ...d, ...(d.loss_attribution || {}),
+    model_sha256: lastResponse.model_sha256, config_hash: lastResponse.config_hash }));
+  saveCsv('rdss-mis-transformer-work-orders.csv', cols, rows);
+  toast('Transformer work-order CSV exported');
 }
 
 /* ---------- router ---------- */
@@ -679,6 +728,7 @@ $('empty-sample').addEventListener('click', loadSample);
 $('run-sample').addEventListener('click', loadSample);
 $('exit-sample').addEventListener('click', exitSample);
 $('btn-csv').addEventListener('click', downloadCSV);
+$('btn-csv-dt').addEventListener('click', downloadDTCsv);
 $('flag-only').addEventListener('change', e => { flagOnly = e.target.checked; if (lastResponse) renderMeters(lastResponse); });
 $('meter-search').addEventListener('input', e => { state.search = e.target.value; if (lastResponse) renderMeters(lastResponse); });
 $('dt-pick').addEventListener('change', () => { if (lastResponse) drawBalance(lastResponse); });

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Grid-GNN — Inspection decision support</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231F5A46'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='%23F6F3EC'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -55,7 +55,7 @@
     </a>
     <h1>Where should the inspector go first?</h1>
     <p class="lede">Grid-GNN ranks meters for theft review, shows the unexplained energy at each transformer,
-    and explains every ranking. Synthetic demo. Nothing is automated.</p>
+    and explains every ranking. Synthetic demo. Nothing is automated. Headless IES v0.4 scoring microservice for existing DISCOM MIS/ERP portals — this dashboard is the verification &amp; audit workbench.</p>
     <div class="hero-actions">
       <button class="btn primary" id="btn-guided">Try the guided demo</button>
       <a class="btn secondary" href="#/models">Choose a model and scenario</a>
@@ -120,6 +120,27 @@
       <strong>M1 — IsolationForest</strong>
       <p>Flags meters that look unusual compared with their own history. No labels needed.</p>
       <span class="m-needs">Needs: own history</span>
+      <span class="m-state muted"></span>
+    </button>
+    <button class="card mcard" data-model="M2">
+      <span class="m-tag hidden" data-tag="rec">Recommended</span>
+      <strong>M2 — Supervised RandomForest</strong>
+      <p>Own-history features. Trained on hidden truth as a <strong>declared oracle-track</strong> demo model.</p>
+      <span class="m-needs">Needs: labels (oracle-declared)</span>
+      <span class="m-state muted"></span>
+    </button>
+    <button class="card mcard" data-model="M3">
+      <span class="m-tag hidden" data-tag="rec">Recommended</span>
+      <strong>M3 — RandomForest + context</strong>
+      <p>M2 plus peer/DT/voltage context. Declared oracle-track demo model.</p>
+      <span class="m-needs">Needs: labels + context (oracle-declared)</span>
+      <span class="m-state muted"></span>
+    </button>
+    <button class="card mcard" data-model="M4">
+      <span class="m-tag hidden" data-tag="rec">Recommended</span>
+      <strong>M4 — Temporal Graph Network (GNN)</strong>
+      <p>Topology message passing + temporal CNN. Declared oracle-track; stress-fragile under AMI dropout / GIS error — see Evidence.</p>
+      <span class="m-needs">Needs: labels + verified topology (oracle-declared)</span>
       <span class="m-state muted"></span>
     </button>
   </div>
@@ -236,7 +257,8 @@
         <label class="inline">Search <input type="search" id="meter-search" placeholder="meter id…" aria-label="Search meters by id"></label>
         <label class="check inline"><input type="checkbox" id="flag-only"> flagged only</label>
         <span id="meter-count" class="muted"></span>
-        <button class="btn small secondary" id="btn-csv">Download CSV</button>
+        <button class="btn small secondary" id="btn-csv" title="Ranked meters with action, owner, SLA and RDSS MIS code">Export RDSS MIS work-orders (CSV)</button>
+        <button class="btn small secondary" id="btn-csv-dt" title="Transformer 4-way loss split with work orders">Transformer work-orders (CSV)</button>
       </div>
       <div class="scroll">
         <table id="meters-table">
@@ -251,6 +273,10 @@
             <th data-key="recorded_to_baseline_ratio" class="sort" title="Recorded energy ÷ this meter's own-history expectation">rec/base</th>
             <th data-key="missing_fraction" class="sort">missing</th>
             <th>reasons</th>
+            <th title="Recommended decision for the field team">action</th>
+            <th title="Accountable owner">owner</th>
+            <th title="Target SLA">SLA</th>
+            <th title="RDSS MIS work-order code">MIS code</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -262,7 +288,7 @@
       <div class="scroll">
         <table id="dts-table">
           <caption class="sr-only">Distribution transformer energy balance</caption>
-          <thead><tr><th>DT</th><th>unexplained kWh</th><th></th><th>allocated</th><th>unassigned</th><th>input kWh</th><th>technical est.</th><th>missing</th></tr></thead>
+          <thead><tr><th>DT</th><th>unexplained kWh</th><th></th><th>allocated</th><th>unassigned</th><th>input kWh</th><th>technical kWh</th><th>missing</th><th title="Unexplained energy allocated to flagged meter anomalies">tamper kWh</th><th title="Unexplained energy allocated to frozen/defective meter signatures">frozen kWh</th><th title="Unexplained energy with no consumer signature — upstream hooking patrol candidate">hooking kWh</th><th>work order</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -280,8 +306,9 @@
 
     <div class="card tabpane hidden" id="pane-expl" role="tabpanel" aria-labelledby="tab-expl">
       <div id="expl-null" class="state-card warn hidden">
-        The loaded models (M0 / M1) do not produce per-meter explanations. This tab is reserved for
-        explanation-capable models if they are loaded into the artifact set later.
+        The active model produced no per-meter explanation. M0/M1 are unsupervised by design;
+        M4 reports group-level permutation importance on this tab instead of per-meter Shapley
+        values; M2/M3 fill it with group Shapley after a run.
       </div>
       <div id="expl-body">
         <p class="quiet" id="expl-method"></p>
@@ -362,7 +389,7 @@
     <details><summary>PR-AUC (not accuracy)</summary><p>Area under the precision–recall curve. We use it because flagged events are rare; accuracy would be misleadingly high for any model that flags nobody.</p></details>
     <details><summary>p(theft)</summary><p>The model's decision-support score for a meter. It is <strong>not</strong> a probability of guilt and is not field-validated.</p></details>
     <details><summary>Precision target</summary><p>The share of flags that would be justified if inspected, fixed in advance (here 0.70) so thresholds cannot be tuned after seeing results.</p></details>
-    <details><summary>FPR — false positive rate</summary><p>How often honest meters get flagged. On honest meter faults our pooled FPR was 47.3% — a measured risk, stated openly.</p></details>
+    <details><summary>FPR — false positive rate</summary>    <p>How often honest meters get flagged. On honest meter faults our pooled FPR was 47.3% (recorded run) / 46.2% (reproduced) — a measured risk, stated openly.</p></details>
   </div>
 </section>
 
@@ -372,14 +399,17 @@
 
   <div class="card">
     <h2>Benchmark results</h2>
-    <p class="hint">Held-out DT-disjoint test set, 20 seeds. M2–M4 were evaluated in the underlying study; this deployment serves M0 and M1 only.</p>
+    <p class="hint">Held-out DT-disjoint test set, 20 seeds. The live artifact loads all five models (M0 remains the default); M2–M4 are declared-oracle-trained demo models — see About.</p>
     <table class="plain">
       <thead><tr><th>Result</th><th>Value</th></tr></thead>
       <tbody>
         <tr><td>Best model — M2 (own-history RF), PR-AUC</td><td class="mono">0.644 [0.584, 0.707]</td></tr>
         <tr><td>Graph model M4 vs M3 (paired difference)</td><td class="mono">−0.041 [−0.106, 0.049] — no benefit</td></tr>
+        <tr><td>Inspection yield @ budget — Track B precision@10 / @20 / @50 (declared oracle)</td><td class="mono">0.50 / 0.60 / 0.64 (5.3–6.8× lift over 9.4% base)</td></tr>
+        <tr><td>Inspection yield @ budget — Track A precision@50 (headline, 3 usable positives)</td><td class="mono">0.00 (ranks 127/185/505 — honestly reported)</td></tr>
+        <tr><td>Predeclared flag operating point</td><td class="mono">70% precision target, abstention if &lt;5 flags attainable</td></tr>
         <tr><td>Voltage sensing</td><td>no established benefit</td></tr>
-        <tr><td>Honest-fault pooled FPR</td><td class="mono">47.3%</td></tr>
+        <tr><td>Honest-fault pooled FPR</td><td class="mono">47.3% recorded run · 46.2% reproduced</td></tr>
         <tr><td>Low-consumption customers flagged</td><td class="mono">2.2× more often</td></tr>
         <tr><td>Hooking theft invisible above the DT</td><td class="mono">15.0%</td></tr>
       </tbody>
@@ -387,8 +417,8 @@
   </div>
 
   <div class="value-cards">
-    <div class="card vcard"><h3>What did not work</h3><p>The graph model (M4) did not beat the graph-free baseline, and voltage sensing showed no established benefit. We report both rather than hiding them.</p></div>
-    <div class="card vcard"><h3>Risks we measured</h3><p>47.3% of honest meter faults would be flagged; low-consumption customers are flagged 2.2× more often — an equity risk; 15.0% of hooking theft is invisible above the DT.</p></div>
+    <div class="card vcard"><h3>What did not work — and why that ships as a feature</h3><p>The graph model (M4) did not beat graph-free baselines on clean data, and under 15% AMI dropout it falls to 0.482 PR-AUC while M2 holds 0.680. We report both rather than hiding them — the shipped default is the label-free, topology-free detector, with M2–M4 one API switch away when labels and verified GIS exist.</p></div>
+    <div class="card vcard"><h3>Risks we measured</h3><p>47.3% (recorded) / 46.2% (reproduced) of honest meter faults would be flagged; low-consumption customers are flagged 2.2× more often — an equity risk; 15.0% of hooking theft is invisible above the DT.</p></div>
     <div class="card vcard"><h3>What we need next</h3><p>Real AMI telemetry, real feeder–DT–meter topology, and a utility data partnership.</p></div>
   </div>
 
@@ -416,6 +446,20 @@
   <div class="card">
     <h2>Live provenance notes <span class="muted">(from the last run)</span></h2>
     <ul id="about-notes" class="about-list"></ul>
+  </div>
+  <div class="card">
+    <h2>India Energy Stack (IES) v0.4 alignment</h2>
+    <p class="hint">Built as a headless IES v0.4 scoring microservice for existing DISCOM MIS/ERP portals — this dashboard is the PMU verification &amp; audit workbench. No central database: raw data stays inside the host utility's MDM/SCADA.</p>
+    <table class="plain">
+      <thead><tr><th>IES building block</th><th>How this solution uses it</th></tr></thead>
+      <tbody>
+        <tr><td>BB1 — Identity</td><td><code>meter_id</code> / <code>dt_id</code> map to federated asset &amp; consumer identifiers — cross-reference MDM, GIS and billing without centralising databases</td></tr>
+        <tr><td>BB3 — Interaction protocols</td><td>Stateless <code>POST /score</code> request/acknowledgement flow bound by <code>config_hash</code> + <code>model_sha256</code> (non-repudiable inference logs)</td></tr>
+        <tr><td>BB4 — Energy data exchange</td><td>15-minute AMI &amp; DT telemetry schema (<code>readings[]</code>, <code>dt_readings[]</code>); consent/purpose-bound interval arrays only — no PII, no central store</td></tr>
+        <tr><td>BB5 — Energy credentials</td><td>Append-only audit log with model/config provenance so an engineer can defend a vigilance ticket to a SERC regulator (Electricity Act s.126/s.135)</td></tr>
+      </tbody>
+    </table>
+    <p class="quiet">Machine-readable manifest: <code>GET /ies/manifest</code> on the API · live alignment block in <code>GET /health</code>.</p>
   </div>
   <div class="card">
     <h2>Team &amp; challenge</h2>
@@ -464,6 +508,6 @@
   <p class="muted">Decision support only. A field inspector verifies every flag. · Synthetic data, not field-validated.</p>
 </footer>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
