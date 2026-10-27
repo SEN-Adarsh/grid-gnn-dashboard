@@ -625,13 +625,14 @@ function downloadDTCsv() {
 
 function downloadFilingObject() {
   if (!lastResponse) return;
+  const isSample = (lastResponse.model_sha256 || '').startsWith('sample');
   const filing = {
     standard: 'IES v0.4 A1.7 DISCOM-Regulator Filing Object',
     timestamp: new Date().toISOString(),
-    config_hash: lastResponse.config_hash,
-    model_sha256: lastResponse.model_sha256,
+    config_hash: isSample ? '6e60f7bd16aff2ef' : lastResponse.config_hash,
+    model_sha256: isSample ? 'sample-mode (no live model)' : lastResponse.model_sha256,
     model: lastResponse.model,
-    profile_source: lastResponse.profile_source,
+    profile_source: isSample ? 'synthetic_india_v2' : lastResponse.profile_source,
     scoring_window: lastResponse.scoring_window || null,
     meters_count: lastResponse.meters.length,
     dts_count: lastResponse.dts.length,
