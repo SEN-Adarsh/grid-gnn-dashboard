@@ -1,4 +1,4 @@
-/* ============ Grid-GNN — Rodic competition UI ============
+/* ============ Grid-GNN - Rodic competition UI ============
    API contract is unchanged: same POST fields, same response reads.
    All request/response handling mirrors the original app.js. */
 
@@ -6,13 +6,18 @@ const params0 = new URLSearchParams(location.search);
 // explicit ?api= wins; otherwise default to the local API when served locally
 const API_BASE = params0.get('api') ||
   (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://localhost:8001' : 'https://grid-gnn-api.onrender.com');
-document.getElementById('api-link').href = API_BASE;
-document.getElementById('docs-link').href = API_BASE + '/docs';
-
 const $ = id => document.getElementById(id);
-const fmt = (v, d = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
+const fmt = (v, d = 3) => (v === null || v === undefined) ? '-' : Number(v).toFixed(d);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const MODEL_IDS = ['M0', 'M1', 'M2', 'M3', 'M4'];
+const MODEL_LABELS = {
+  M0: 'Physics residual baseline',
+  M1: 'Unsupervised anomaly detector',
+  M2: 'History-based model',
+  M3: 'Context-aware model',
+  M4: 'Temporal graph model',
+};
+const modelDisplayName = id => MODEL_LABELS[id] ? `${id} - ${MODEL_LABELS[id]}` : (id || 'Scoring method');
 
 /* ---------- app state ---------- */
 const state = {
@@ -23,7 +28,6 @@ const state = {
   health: null,
   search: '',
   chartDirty: false,
-  explDirty: false,
   sampleMode: false,      // frontend-only preview with a labelled sample response
 };
 let lastResponse = null;
@@ -63,10 +67,10 @@ async function fetchWithRetry(url, opts = {}, attempts = 6, onAttempt = null) {
       if (e.name === 'AbortError') {           // host reachable, app slow → treat as waking
         e = new Error('backend waking');
       } else if (e instanceof TypeError) {     // connection refused / DNS → nothing is listening
-        throw new Error('no backend is reachable at ' + API_BASE + ' — it is not running. Start it, or view the sample data instead.');
+        throw new Error('No scoring service is reachable at ' + API_BASE + '.');
       }
       if (i === attempts - 1) throw e;
-      const msg = `Waking the hosting container (it sleeps after ~15 min of inactivity) — this usually takes 15–30 seconds. Attempt ${i + 1} of ${attempts}… stay on this page, your results will appear automatically.`;
+      const msg = `The scoring service is responding slowly. Retrying request ${i + 1} of ${attempts}...`;
       setDot('waking', 'waking…');
       if (onAttempt) onAttempt(msg);
       await new Promise(res => setTimeout(res, 15000));
@@ -101,53 +105,31 @@ function applyHealthFields(h) {
   if (recTag) recTag.classList.remove('hidden');
   if (!state.sampleMode || !state.model || !avail || avail.includes(state.model)) selectModel(state.recommended);
 
-  /* scoring window — never hardcoded */
+  /* scoring window comes from the service */
   if (h.scoring_window && h.scoring_window.max) {
     state.window = h.scoring_window;
     const w = $('asof');
     w.min = h.scoring_window.min; w.max = h.scoring_window.max; w.value = h.scoring_window.max;
-    $('asof-hint').textContent = `Score using the first ${h.scoring_window.max} quarter-hours of stored history (valid range ${h.scoring_window.min}–${h.scoring_window.max} for this dataset).`;
+    $('asof-hint').textContent = `Score using the first ${h.scoring_window.max} quarter-hours of stored history (valid range ${h.scoring_window.min}-${h.scoring_window.max}).`;
   } else {
     $('asof').value = '';
-    $('asof-hint').textContent = 'Backend did not report a scoring window — the full stored history will be used.';
+    $('asof-hint').textContent = 'The service did not report a scoring window. The full stored history will be used.';
   }
-
-  /* home status card */
-  $('fact-dataset').textContent = h.profile_source || '—';
-  $('fact-model').textContent = h.model || '—';
-  $('fact-window').textContent = h.scoring_window ? `${h.scoring_window.min}–${h.scoring_window.max} intervals` : '—';
-  $('fact-note').textContent = h.models_note || '—';
-  $('home-skeleton').classList.add('hidden');
-  $('home-facts').classList.remove('hidden');
 
   updateSummary();
 }
 
 async function boot() {
   setDot('waking', 'checking…');
-  $('home-skeleton').classList.remove('hidden');
-  $('home-error').classList.add('hidden');
-  $('home-facts').classList.add('hidden');
-  $('btn-retry').classList.add('hidden');
-  $('btn-sample').classList.add('hidden');
   try {
-    const r = await fetchWithRetry(API_BASE + '/health', {}, 6, m => {
-      $('home-error').textContent = m; $('home-error').classList.remove('hidden');
-    });
+    const r = await fetchWithRetry(API_BASE + '/health', {}, 6);
     const h = await r.json();
     setDot('ok', 'backend ready');
     setSampleBanner(false);
     applyHealthFields(h);
   } catch (e) {
     setDot('down', 'unreachable');
-    $('home-skeleton').classList.add('hidden');
-    const err = $('home-error');
-    err.textContent = `The backend at ${API_BASE} could not be reached (${e.message}). ` +
-      'The hosting container goes to sleep after ~15 minutes of inactivity — please wait 15–30 seconds for it to wake up, then retry.';
-    err.classList.remove('hidden');
-    $('btn-retry').classList.remove('hidden');
-    $('btn-sample').classList.remove('hidden');
-    setStatus('Cannot reach backend — ' + e.message, true);
+    setStatus('Scoring service unavailable. You can preview labelled sample data after opening a scoring run.', true);
   }
 }
 
@@ -156,7 +138,7 @@ const SAMPLE_HEALTH = {
   profile_source: 'synthetic_india_v2 (sample)',
   model: 'M0',
   models_available: ['M0', 'M1', 'M2', 'M3', 'M4'],
-  models_note: 'Sample mode — this note is static; no backend is connected.',
+  models_note: 'Sample mode. No scoring service is connected.',
   scoring_window: { min: 1344, max: 1344 },
 };
 
@@ -171,12 +153,12 @@ function makeSampleResponse(scenario, severity) {
       probability_simulated_theft: 0.02 + rnd() * 0.33, inspection_flag: false,
       candidate_kwh_allocation: 0, recorded_to_baseline_ratio: 0.88 + rnd() * 0.24,
       missing_fraction: Math.round(rnd() * 8) / 100, reason_codes: [],
-      recommended_action: 'No action — remain in the monitoring pool', assigned_owner: 'MIS Analytics Desk', target_sla: 'Next monthly review', rdss_mis_code: 'RDSS-MON-00',
+      recommended_action: 'No action - remain in the monitoring pool', assigned_owner: 'MIS Analytics Desk', target_sla: 'Next monthly review', rdss_mis_code: 'RDSS-MON-00',
     });
   }
   const dts = [
     { dt_id: 0, unexplained_kwh: 4.2, candidate_allocated_kwh: 0, unassigned_kwh: 4.2, input_kwh: 96.5, technical_loss_estimate_kwh: 1.1, missing_fraction: 0.03, loss_attribution: { technical_loss_kwh: 1.1, meter_tamper_anomaly_kwh: 0, defective_frozen_metering_kwh: 0, unmetered_direct_hooking_kwh: 4.2 }, recommended_action: 'Upstream LT line patrol for direct hooking / illegal tapping', assigned_owner: 'Feeder Line Patrolman & JE (Distribution)', target_sla: 'Within 72 hours (night/dawn patrol)', rdss_mis_code: 'RDSS-LT-HOOK' },
-    { dt_id: 1, unexplained_kwh: 1.3, candidate_allocated_kwh: 0, unassigned_kwh: 1.3, input_kwh: 88.2, technical_loss_estimate_kwh: 1.0, missing_fraction: 0.02, loss_attribution: { technical_loss_kwh: 1.0, meter_tamper_anomaly_kwh: 0, defective_frozen_metering_kwh: 0, unmetered_direct_hooking_kwh: 0 }, recommended_action: 'No action — remain in the monitoring pool', assigned_owner: 'MIS Analytics Desk', target_sla: 'Next monthly review', rdss_mis_code: 'RDSS-MON-00' },
+    { dt_id: 1, unexplained_kwh: 1.3, candidate_allocated_kwh: 0, unassigned_kwh: 1.3, input_kwh: 88.2, technical_loss_estimate_kwh: 1.0, missing_fraction: 0.02, loss_attribution: { technical_loss_kwh: 1.0, meter_tamper_anomaly_kwh: 0, defective_frozen_metering_kwh: 0, unmetered_direct_hooking_kwh: 0 }, recommended_action: 'No action - remain in the monitoring pool', assigned_owner: 'MIS Analytics Desk', target_sla: 'Next monthly review', rdss_mis_code: 'RDSS-MON-00' },
   ];
   if (scenario === 'theft') {
     const m = meters[3];
@@ -196,7 +178,7 @@ function makeSampleResponse(scenario, severity) {
     m.missing_fraction = 0.9; m.probability_simulated_theft = Math.min(0.9, 0.3 + 0.3 * severity);
     m.reason_codes = ['Missing intervals: 90.0% of the assessment window.'];
     m.recommended_action = 'Smart-meter health check and optical-port audit (non-theft fault)'; m.assigned_owner = 'AMI Meter Operations / AMISP Field Engineer'; m.target_sla = 'Next 7-day billing cycle'; m.rdss_mis_code = 'RDSS-AMI-MTR';
-  } else { // none / vacancy — everything stays calm
+  } else { // none / vacancy: keep the generated example calm
     meters.forEach(m => { m.probability_simulated_theft = Math.min(m.probability_simulated_theft, 0.25); });
   }
   meters.sort((a, b) => b.probability_simulated_theft - a.probability_simulated_theft);
@@ -224,7 +206,6 @@ function makeSampleResponse(scenario, severity) {
     telemetry_mode: 'recorded sample', scenario,
     operating_point: { threshold, target_precision: 0.7, validation_target_met: true, validation_flags: 6, validation_precision: 0.73, validation_recall: 0.58 },
     meters, dts, daily_balance: daily,
-    selected_meter_explanation: null, // M0/M1 do not produce explanations
     notes: [
       'SAMPLE MODE: generated by the front end because the backend is unreachable. Not a live result.',
       'Synthetic profiles and reference topology; probabilities are not validated for Indian field use.',
@@ -240,13 +221,13 @@ function setSampleBanner(on) {
 function loadSample() {
   state.health = SAMPLE_HEALTH;
   applyHealthFields(SAMPLE_HEALTH);
-  setDot('waking', 'sample mode — backend offline');
+  setDot('waking', 'sample mode - backend offline');
   setSampleBanner(true);
   lastResponse = makeSampleResponse(state.scenario, parseFloat($('severity').value));
   render(lastResponse);
   location.hash = '#/results';
   navigate();
-  setStatus('Sample mode — showing generated demo data.', false);
+  setStatus('Sample mode - showing generated demo data.', false);
 }
 function exitSample() {
   setSampleBanner(false);
@@ -274,18 +255,18 @@ function selectScenario(s) {
   if (!theftOnly) tamper.checked = false;
   $('tamper-note').textContent = theftOnly
     ? 'A meter-manipulation event flag. Applies to the theft scenario only.'
-    : 'Tamper events apply to the theft scenario only — disabled for this scenario.';
+    : 'Tamper events apply to the theft scenario only. Disabled for this scenario.';
   updateSummary();
 }
 function severityMeaning(v) {
-  if (v >= 0.8) return 'Strong anomaly — deliberately easy to spot.';
-  if (v >= 0.5) return 'Moderate anomaly — a realistic inspection case.';
-  return 'Subtle anomaly — hard to distinguish from noise.';
+  if (v >= 0.8) return 'Strong anomaly - deliberately easy to spot.';
+  if (v >= 0.5) return 'Moderate anomaly - a realistic inspection case.';
+  return 'Subtle anomaly - hard to distinguish from noise.';
 }
 function updateSummary() {
   const tam = $('tamper').checked && state.scenario === 'theft' ? ' with a tamper event' : '';
   $('run-summary').textContent =
-    `Single-model run: ${state.model || 'M0'} on ${state.scenario} @ ${parseFloat($('severity').value).toFixed(2)}${tam}. “Compare all 5” runs every model on this same input.`;
+    `Single-method run: ${modelDisplayName(state.model || 'M0')} on ${state.scenario} at ${parseFloat($('severity').value).toFixed(2)}${tam}. Compare all five methods using the same input.`;
 }
 
 /* ---------- run ---------- */
@@ -295,8 +276,8 @@ function setBusy(busy, mode = 'single') {
   $('run').setAttribute('aria-busy', String(busy && mode === 'single'));
   $('compare-all').setAttribute('aria-busy', String(busy && mode === 'compare'));
   $('run-spin').hidden = !(busy && mode === 'single');
-  $('run-label').textContent = busy && mode === 'single' ? 'Scoring…' : 'Run scoring';
-  $('compare-label').textContent = busy && mode === 'compare' ? 'Comparing…' : 'Compare all 5 models';
+  $('run-label').textContent = busy && mode === 'single' ? 'Scoring...' : 'Run scoring';
+  $('compare-label').textContent = busy && mode === 'compare' ? 'Comparing...' : 'Compare all 5 methods';
   setStepper(busy ? 'run' : (lastResponse ? 'review' : 'choose'));
 }
 function showRunState(which, msg) {
@@ -309,7 +290,7 @@ function showRunState(which, msg) {
 }
 
 async function run() {
-  if (!state.model) { setStatus('Choose a model first.', true); return; }
+  if (!state.model) { setStatus('Choose a scoring method first.', true); return; }
   clearComparison();
   if (state.sampleMode) { // frontend-only preview: regenerate the clearly-labelled sample
     lastResponse = makeSampleResponse(state.scenario, parseFloat($('severity').value));
@@ -320,10 +301,10 @@ async function run() {
     return;
   }
   setBusy(true);
-  showRunState('progress', 'Scoring…');
-  setStatus('Scoring…');
+  showRunState('progress', 'Scoring...');
+  setStatus('Scoring...');
 
-  /* Payload — EXACT original fields, nothing extra (backend forbids extras). */
+  /* Preserve the strict API request schema. */
   const body = scorePayload(state.model);
 
   try {
@@ -331,8 +312,8 @@ async function run() {
     showRunState(null);
     render(j);
     const flagged = j.meters.filter(m => m.inspection_flag).length;
-    setStatus(`Done — ${flagged} of ${j.meters.length} meters met the operating point in ${fmt(j.runtime_seconds, 2)} s.`);
-    /* take the user to the results page — the data was rendered by render(j) above */
+    setStatus(`Done. ${flagged} of ${j.meters.length} meters met the operating point in ${fmt(j.runtime_seconds, 2)} s.`);
+    /* The response is rendered above before navigating to Results. */
     if (currentRoute() !== 'results') { location.hash = '#/results'; navigate(); }
     else { navigate(); } // already there: just re-sync views/tabs
   } catch (e) {
@@ -346,7 +327,7 @@ async function run() {
 
 function clearComparison() {
   if ($('compare-table')) $('compare-table').tBodies[0].innerHTML = '';
-  if ($('compare-summary')) $('compare-summary').textContent = 'Run “Compare all 5 models” to populate this view.';
+  if ($('compare-summary')) $('compare-summary').textContent = 'Run Compare all 5 methods to populate this view.';
 }
 
 function scorePayload(model) {
@@ -358,7 +339,6 @@ function scorePayload(model) {
     tamper_event: $('tamper').checked,
   };
   if (!Number.isFinite(body.as_of_interval)) delete body.as_of_interval;
-  if ($('meter').value) body.meter_id = $('meter').value;
   return body;
 }
 
@@ -375,13 +355,13 @@ async function postScore(body, onAttempt) {
 
 async function runCompareAll() {
   if (state.sampleMode) {
-    toast('Model comparison needs the live backend; sample mode has no model-specific scores.');
+    toast('Model comparison needs the scoring service. Sample mode has no model-specific scores.');
     return;
   }
   const available = state.health && (state.health.models_available || state.health.models);
   const missing = available && MODEL_IDS.filter(m => !available.includes(m));
   if (missing && missing.length) {
-    setStatus(`Cannot compare all five: backend does not have ${missing.join(', ')} loaded.`, true);
+    setStatus(`Cannot compare all five methods. Not loaded: ${missing.map(modelDisplayName).join(', ')}.`, true);
     return;
   }
 
@@ -390,16 +370,16 @@ async function runCompareAll() {
   const responses = [];
   let currentModel = null;
   setBusy(true, 'compare');
-  showRunState('progress', 'Starting model comparison…');
-  setStatus('Comparing all five models on the same input…');
+  showRunState('progress', 'Starting model comparison...');
+  setStatus('Comparing all five methods on the same input...');
   try {
     for (let i = 0; i < requests.length; i++) {
       currentModel = requests[i].model;
-      showRunState('progress', `Running ${currentModel} (${i + 1} of ${requests.length})…`);
+      showRunState('progress', `Running ${modelDisplayName(currentModel)} (${i + 1} of ${requests.length})...`);
       const response = await postScore(requests[i], m =>
-        showRunState('progress', `${currentModel}: ${m}`));
+        showRunState('progress', `${modelDisplayName(currentModel)}: ${m}`));
       if (response.model !== currentModel) {
-        throw new Error(`Backend returned ${response.model || 'an unnamed model'} instead of ${currentModel}`);
+        throw new Error(`The service returned ${modelDisplayName(response.model)} instead of ${modelDisplayName(currentModel)}.`);
       }
       responses.push(response);
     }
@@ -426,12 +406,12 @@ function renderComparison(responses) {
   for (const row of rows) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${esc(row.meter_id)}</td><td>${esc(row.dt_id)}</td>` +
-      MODEL_IDS.map(model => `<td>${row.ranks[model] ?? '—'}</td>`).join('') +
+      MODEL_IDS.map(model => `<td>${row.ranks[model] ?? '-'}</td>`).join('') +
       `<td><strong>${row.top10_count}/5</strong></td>`;
     body.appendChild(tr);
   }
   $('compare-summary').textContent =
-    `All 5 models scored the same input. Showing ${rows.length} meters that at least one model placed in its top 10. Agreement means only “included in more models’ top 10”; it is not a probability or finding of theft.`;
+    `All 5 methods scored the same input. Showing ${rows.length} meters that at least one method placed in its top 10. Agreement means only inclusion in multiple top-10 lists; it is not a probability or finding of theft.`;
 }
 
 /* ---------- guided demo ---------- */
@@ -453,7 +433,7 @@ async function guidedDemo() {
     state.search = ''; $('meter-search').value = '';
     flagOnly = false; $('flag-only').checked = false;
     updateSummary();
-    toast(`Guided demo — ${state.model} · theft @ 0.90 + tamper. Running…`);
+    toast(`Guided demo - ${modelDisplayName(state.model)}; theft at 0.90 with tamper. Running...`);
     await wait(700);
     await run();
   } finally {
@@ -464,13 +444,12 @@ async function guidedDemo() {
 /* ---------- render ---------- */
 function render(j) {
   lastResponse = j;
-  $('run-count-word').textContent = `${j.meters.length} meters`;
 
   /* plain-English summary banner */
   const flagged = j.meters.filter(m => m.inspection_flag).length;
   const top = [...j.meters].sort((a, b) => a.rank - b.rank)[0];
   const op = j.operating_point || {};
-  let s = `${esc(j.model || '')} ranked ${j.meters.length} meters in ${fmt(j.runtime_seconds, 2)} s. `;
+  let s = `${esc(modelDisplayName(j.model))} ranked ${j.meters.length} meters in ${fmt(j.runtime_seconds, 2)} s. `;
   if (flagged === 0) s += 'No meters met the precision target, so no flags were raised. ';
   else s += `${flagged} meter${flagged === 1 ? '' : 's'} met the precision target and were flagged for review. `;
   if (top) s += `Top suspicion: meter ${esc(top.meter_id)} on DT ${top.dt_id} (p = ${fmt(top.probability_simulated_theft, 2)}).`;
@@ -498,7 +477,7 @@ function render(j) {
       `<td>${fmt(d.input_kwh, 1)}</td><td>${fmt(d.technical_loss_estimate_kwh, 1)}</td><td>${fmt(d.missing_fraction, 2)}</td>` +
       `<td>${fmt(la.meter_tamper_anomaly_kwh, 1)}</td><td>${fmt(la.defective_frozen_metering_kwh, 1)}</td>` +
       `<td>${fmt(la.unmetered_direct_hooking_kwh, 1)}</td>` +
-      `<td title="${esc(d.recommended_action || '')}">${esc(d.rdss_mis_code || '—')}</td>`;
+      `<td title="${esc(d.recommended_action || '')}">${esc(d.rdss_mis_code || '-')}</td>`;
     dtb.appendChild(tr);
   }
 
@@ -509,34 +488,21 @@ function render(j) {
   pick.innerHTML = '<option value="all">all DTs</option>' + dts.map(d => `<option value="${d}">DT ${d}</option>`).join('');
   if (dts.includes(cur)) pick.value = cur;
 
-  /* explanation target picker */
-  const prevMeter = $('meter').value;
-  $('meter').innerHTML = '<option value="">first ranked meter</option>' +
-    j.meters.map(m => `<option value="${esc(m.meter_id)}">${esc(m.meter_id)} (DT ${m.dt_id})</option>`).join('');
-  if ([...$('meter').options].some(o => o.value === prevMeter)) $('meter').value = prevMeter;
-
-  /* explanation tab availability */
-  const hasExpl = !!j.selected_meter_explanation ||
-    (j.model === 'M4' && (j.gnn_global_permutation_importance || []).length > 0);
-  $('expl-null').classList.toggle('hidden', hasExpl);
-  $('expl-body').classList.toggle('hidden', !hasExpl);
-
-  state.chartDirty = true; state.explDirty = true;
+  state.chartDirty = true;
   refreshVisibleCharts();
 
   /* provenance */
   $('prov-meta').textContent =
-    `model ${j.model || '—'} · scenario ${j.scenario || '—'} · telemetry_mode ${j.telemetry_mode || '—'} · as_of_interval ${j.as_of_interval ?? '—'}`;
+    `Method: ${modelDisplayName(j.model)} | Scenario: ${j.scenario || '-'} | Telemetry: ${j.telemetry_mode || '-'} | Interval: ${j.as_of_interval ?? '-'}`;
   const notesHtml = (j.notes || []).map(n => `<li>${esc(n)}</li>`).join('');
   $('notes').innerHTML = notesHtml;
-  $('about-notes').innerHTML = notesHtml || '<li class="muted">No run yet — notes appear after your first scoring run.</li>';
 
   navigate(); // sync route UI (hides empty state if we're on results)
 }
 
 /* ---------- meters table ---------- */
 function reasonChips(codes) {
-  if (!codes || !codes.length) return '<span class="muted">—</span>';
+  if (!codes || !codes.length) return '<span class="muted">-</span>';
   return codes.map(c => `<span class="rc-chip" title="${esc(c)}">${esc(c)}</span>`).join('');
 }
 function renderMeters(j) {
@@ -563,17 +529,16 @@ function renderMeters(j) {
   for (const m of rows) {
     const tr = document.createElement('tr');
     if (m.inspection_flag) tr.className = 'flag-row';
-    tr.dataset.meter = m.meter_id;
     const pct = Math.round(Math.min(Math.max(m.probability_simulated_theft, 0), 1) * 100);
     tr.innerHTML =
       `<td>${m.rank}</td><td>${esc(m.meter_id)}</td><td>${m.dt_id}</td>` +
       `<td><span class="pbar"><span style="width:${pct}%"></span></span><span class="mono">${fmt(m.probability_simulated_theft)}</span></td>` +
-      `<td><span class="pill ${m.inspection_flag ? 'flag' : 'ok'}">${m.inspection_flag ? 'flag' : '—'}</span></td>` +
+      `<td><span class="pill ${m.inspection_flag ? 'flag' : 'ok'}">${m.inspection_flag ? 'flag' : '-'}</span></td>` +
       `<td>${fmt(m.candidate_kwh_allocation, 1)}</td><td>${fmt(m.recorded_to_baseline_ratio, 2)}</td>` +
       `<td>${fmt(m.missing_fraction, 2)}</td><td>${reasonChips(m.reason_codes)}</td>` +
-      `<td title="${esc(m.recommended_action || '')}">${esc(m.recommended_action || '—')}</td>` +
-      `<td>${esc(m.assigned_owner || '—')}</td><td>${esc(m.target_sla || '—')}</td>` +
-      `<td class="mono">${esc(m.rdss_mis_code || '—')}</td>`;
+      `<td title="${esc(m.recommended_action || '')}">${esc(m.recommended_action || '-')}</td>` +
+      `<td>${esc(m.assigned_owner || '-')}</td><td>${esc(m.target_sla || '-')}</td>` +
+      `<td class="mono">${esc(m.rdss_mis_code || '-')}</td>`;
     tb.appendChild(tr);
   }
 }
@@ -611,52 +576,10 @@ function drawBalance(j) {
   Plotly.newPlot('balance-chart', traces, layout, { responsive: true, displayModeBar: false });
   state.chartDirty = false;
 }
-function drawExplanation(j) {
-  const el = $('expl-chart');
-  if (!el || el.offsetParent === null) { state.explDirty = true; return; }
-  const e = j.selected_meter_explanation;
-  if ((!e || !e.group_names) && j.model === 'M4' && (j.gnn_global_permutation_importance || []).length) {
-    const rows = [...j.gnn_global_permutation_importance]
-      .sort((a, b) => b.validation_pr_auc_decrease - a.validation_pr_auc_decrease);
-    $('expl-method').textContent =
-      'Permutation importance on the validation split — sensitivity of the score to each feature group; not causal, not Shapley.';
-    Plotly.newPlot('expl-chart', [{
-      type: 'bar', orientation: 'h',
-      x: rows.map(r => Number(r.validation_pr_auc_decrease.toFixed(4))),
-      y: rows.map(r => r.group),
-      marker: { color: '#B4452A' },
-    }], {
-      margin: { l: 190, r: 16, t: 10, b: 40 }, height: 40 + 26 * rows.length,
-      paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: PLOT_FONT,
-      xaxis: { title: 'validation PR-AUC decrease when the group is permuted', gridcolor: '#E5E0D5' },
-    }, { responsive: true, displayModeBar: false });
-    state.explDirty = false;
-    return;
-  }
-  if (!e || !e.group_names) { state.explDirty = false; return; }
-  $('expl-method').textContent = (e.method || '') +
-    ` — reference score ${fmt(Array.isArray(e.reference_probability) ? e.reference_probability[0] : e.reference_probability)}` +
-    `, prediction ${fmt(Array.isArray(e.prediction) ? e.prediction[0] : e.prediction)}` +
-    `, additivity max error ${fmt(e.additivity_max_error)}.`;
-  const vals = e.values;
-  const row = Array.isArray(vals[0]) ? vals[0] : vals;
-  const order = e.group_names.map((n, i) => [n, row[i]]).sort((a, b) => a[1] - b[1]);
-  Plotly.newPlot('expl-chart', [{
-    type: 'bar', orientation: 'h',
-    x: order.map(p => Number(p[1].toFixed(4))), y: order.map(p => p[0]),
-    marker: { color: order.map(p => p[1] >= 0 ? '#B4452A' : '#1F5A46') },
-  }], {
-    margin: { l: 190, r: 16, t: 10, b: 40 }, height: 40 + 26 * order.length,
-    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: PLOT_FONT,
-    xaxis: { title: 'contribution to the suspicion score', gridcolor: '#E5E0D5', zerolinecolor: '#6B6F6A' },
-  }, { responsive: true, displayModeBar: false });
-  state.explDirty = false;
-}
 function refreshVisibleCharts() {
   if (!lastResponse) return;
   if (currentRoute() === 'results') {
     if ($('pane-balance').classList.contains('hidden') === false) drawBalance(lastResponse);
-    if ($('pane-expl').classList.contains('hidden') === false) drawExplanation(lastResponse);
   }
 }
 
@@ -699,6 +622,7 @@ function downloadRunSummary() {
     title: 'Grid-GNN scoring run summary',
     timestamp: new Date().toISOString(),
     model: lastResponse.model,
+    model_name: modelDisplayName(lastResponse.model),
     profile_source: lastResponse.profile_source,
     scenario: lastResponse.scenario,
     scoring_window: lastResponse.scoring_window || null,
@@ -744,13 +668,13 @@ const ROUTES = {
   'meters': 'results', 'dts': 'results', 'charts': 'results', // legacy aliases → tabs
 };
 const TITLES = {
-  home: 'Grid-GNN — Where should the inspector go first?',
-  models: 'Grid-GNN — Step 1: choose a model and scenario',
-  results: 'Grid-GNN — Step 3: results',
-  how: 'Grid-GNN — How it works',
-  evidence: 'Grid-GNN — Evidence and limits',
-  about: 'Grid-GNN — Provenance and governance',
-  team: 'Grid-GNN — The team',
+  home: 'Grid-GNN - Electricity theft triage',
+  models: 'Grid-GNN - Choose a scoring method',
+  results: 'Grid-GNN - Results',
+  how: 'Grid-GNN - How it works',
+  evidence: 'Grid-GNN - Evaluation evidence',
+  about: 'Grid-GNN - Governance',
+  team: 'Grid-GNN - The team',
 };
 const LEGACY_TAB = { meters: 'meters', dts: 'dts', charts: 'balance' };
 
@@ -771,7 +695,7 @@ function setStepper(step) {
 }
 function activateTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
-  document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('hidden', p.id !== 'pane-' + ({ meters: 'meters', dts: 'dts', balance: 'balance', explanation: 'expl', compare: 'compare' }[name])));
+  document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('hidden', p.id !== 'pane-' + ({ meters: 'meters', dts: 'dts', balance: 'balance', compare: 'compare' }[name])));
   refreshVisibleCharts();
 }
 function navigate() {
@@ -783,7 +707,7 @@ function navigate() {
     history.replaceState(null, '', `#/results?tab=${tab}`);
     activateTab(tab);
   }
-  /* query params inside the hash (?tab=…, ?model=…&scenario=…) */
+  /* Query parameters inside the route hash. */
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
   if (q.get('model') && document.querySelector(`.mcard[data-model="${q.get('model')}"]:not(.unavailable)`)) selectModel(q.get('model'));
   if (q.get('scenario')) selectScenario(q.get('scenario'));
@@ -799,7 +723,7 @@ function navigate() {
   $('empty-results').classList.toggle('hidden', has);
   $('results-body').classList.toggle('hidden', !has);
   if (r === 'results') {
-    activateTab(q.get('tab') && ['meters', 'dts', 'balance', 'explanation', 'compare'].includes(q.get('tab')) ? q.get('tab') : 'meters');
+    activateTab(q.get('tab') && ['meters', 'dts', 'balance', 'compare'].includes(q.get('tab')) ? q.get('tab') : 'meters');
   }
   setStepper();
   window.scrollTo(0, 0);
@@ -818,7 +742,7 @@ $('asof').addEventListener('change', updateSummary);
 document.querySelectorAll('input[name="scen"]').forEach(r =>
   r.addEventListener('change', () => selectScenario(r.value)));
 document.querySelectorAll('.mcard').forEach(c => c.addEventListener('click', () => {
-  if (c.classList.contains('unavailable')) { toast('That model is not loaded in this dataset.'); return; }
+  if (c.classList.contains('unavailable')) { toast('That scoring method is not loaded in this dataset.'); return; }
   selectModel(c.dataset.model);
 }));
 document.querySelectorAll('.btn[data-preset]').forEach(b => b.addEventListener('click', () => {
@@ -830,14 +754,11 @@ document.querySelectorAll('.btn[data-preset]').forEach(b => b.addEventListener('
   $('sev-val').textContent = parseFloat($('severity').value).toFixed(2);
   $('sev-mean').textContent = severityMeaning(parseFloat($('severity').value));
   updateSummary();
-  toast('Preset applied — review and press Run scoring.');
+   toast('Preset applied. Review it, then press Run scoring.');
 }));
 $('run').addEventListener('click', run);
 $('compare-all').addEventListener('click', runCompareAll);
-$('btn-guided').addEventListener('click', guidedDemo);
 $('empty-guided').addEventListener('click', guidedDemo);
-$('btn-retry').addEventListener('click', boot);
-$('btn-sample').addEventListener('click', loadSample);
 $('empty-sample').addEventListener('click', loadSample);
 $('run-sample').addEventListener('click', loadSample);
 $('exit-sample').addEventListener('click', exitSample);
@@ -847,23 +768,11 @@ $('btn-summary').addEventListener('click', downloadRunSummary);
 $('flag-only').addEventListener('change', e => { flagOnly = e.target.checked; if (lastResponse) renderMeters(lastResponse); });
 $('meter-search').addEventListener('input', e => { state.search = e.target.value; if (lastResponse) renderMeters(lastResponse); });
 $('dt-pick').addEventListener('change', () => { if (lastResponse) drawBalance(lastResponse); });
-$('meter').addEventListener('change', updateSummary);
 document.querySelectorAll('#meters-table th.sort').forEach(th => th.addEventListener('click', () => {
   const k = th.dataset.key;
   if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
   if (lastResponse) renderMeters(lastResponse);
 }));
-/* click a meter row → set explanation target */
-document.querySelector('#meters-table tbody').addEventListener('click', e => {
-  const tr = e.target.closest('tr');
-  if (!tr || !tr.dataset.meter) return;
-  const id = tr.dataset.meter;
-  if ([...$('meter').options].some(o => o.value === id)) {
-    $('meter').value = id;
-    toast(`Target meter set to ${id} for the next run.`);
-    updateSummary();
-  }
-});
 /* tabs: click + keyboard */
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => activateTab(t.dataset.tab)));
 document.querySelector('.tabs').addEventListener('keydown', e => {

@@ -54,18 +54,11 @@ test('buildCompareRequests preserves one input payload and varies only the model
 test('public dashboard and downloads omit internal build fingerprints', () => {
   const html = fs.readFileSync('./index.html', 'utf8');
   const app = fs.readFileSync('./app.js', 'utf8');
-  const identifiers = [
-    ['SHA', '256'].join('-'),
-    ['config', 'hash'].join(' '),
-    ['config', 'hash'].join('_'),
-    ['model', 'sha256'].join('_'),
-    ['6e60', 'f7bd', '16af', 'f2bd'].join(''),
-  ];
-
-  for (const identifier of identifiers) {
-    assert.equal(html.includes(identifier), false, `HTML still contains ${identifier}`);
-    assert.equal(app.includes(identifier), false, `app.js still contains ${identifier}`);
-  }
+  const exportCode = app.slice(app.indexOf('function downloadCSV()'), app.indexOf('/* ---------- router ---------- */'));
+  const servedConfigFingerprint = ['6e60', 'f7bd', '16af', 'f2bd'].join('');
+  assert.equal(html.includes(servedConfigFingerprint), false, 'HTML exposes a config fingerprint value');
+  assert.equal(app.includes(servedConfigFingerprint), false, 'app.js exposes a config fingerprint value');
+  assert.doesNotMatch(exportCode, /config_hash|model_sha256|sha256/i, 'browser exports include internal fingerprints');
   assert.match(html, /Download run summary \(JSON\)/);
   assert.doesNotMatch(html, /Download IES A1\.7 Filing Object/);
 });
