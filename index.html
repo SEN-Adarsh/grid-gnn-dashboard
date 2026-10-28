@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Grid-GNN — Inspection decision support</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231F5A46'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='%23F6F3EC'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -104,43 +104,40 @@
 
 <!-- ================= MODELS #/models ================= -->
 <section class="view hidden" id="view-models">
-  <h1 class="page-title">Step 1 — Choose a model and scenario</h1>
+  <h1 class="page-title">Step 1 — Choose a scoring method or compare them</h1>
 
-  <h2 class="sec">Model</h2>
+  <h2 class="sec">Scoring method</h2>
+  <p class="hint">All methods receive the same telemetry and scenario. They use it differently. M0 is the default; “Compare all 5” shows separate rankings and agreement, not a combined score.</p>
   <div class="model-grid" role="radiogroup" aria-label="Model">
     <button class="card mcard" data-model="M0">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span>
+      <span class="m-tag hidden" data-tag="rec">Default model</span>
       <strong>M0 — Rule baseline</strong>
-      <p>Untrained, hand-written rule. A reference point, not a serious model.</p>
-      <span class="m-needs">Needs: nothing</span>
+      <p>A simple energy-balance rule using DT unexplained energy and each meter’s own baseline.</p>
+      <span class="m-needs">Default · no theft labels needed</span>
       <span class="m-state muted"></span>
     </button>
     <button class="card mcard" data-model="M1">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span>
       <strong>M1 — IsolationForest</strong>
       <p>Flags meters that look unusual compared with their own history. No labels needed.</p>
       <span class="m-needs">Needs: own history</span>
       <span class="m-state muted"></span>
     </button>
     <button class="card mcard" data-model="M2">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span>
       <strong>M2 — Supervised RandomForest</strong>
-      <p>Own-history features. Trained on hidden truth as a <strong>declared oracle-track</strong> demo model.</p>
-      <span class="m-needs">Needs: labels (oracle-declared)</span>
+      <p>Learns patterns from each meter’s own history.</p>
+      <span class="m-needs">Oracle-trained demo · uses hidden synthetic labels</span>
       <span class="m-state muted"></span>
     </button>
     <button class="card mcard" data-model="M3">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span>
       <strong>M3 — RandomForest + context</strong>
-      <p>M2 plus peer/DT/voltage context. Declared oracle-track demo model.</p>
-      <span class="m-needs">Needs: labels + context (oracle-declared)</span>
+      <p>M2 plus nearby meters, transformer balance, and voltage context.</p>
+      <span class="m-needs">Oracle-trained demo · uses hidden synthetic labels</span>
       <span class="m-state muted"></span>
     </button>
     <button class="card mcard" data-model="M4">
-      <span class="m-tag hidden" data-tag="rec">Recommended</span>
       <strong>M4 — Temporal Graph Network (GNN)</strong>
-      <p>Topology message passing + temporal CNN. Declared oracle-track; stress-fragile under AMI dropout / GIS error — see Evidence.</p>
-      <span class="m-needs">Needs: labels + verified topology (oracle-declared)</span>
+      <p>M3 plus time patterns and the network connections between meters.</p>
+      <span class="m-needs">Oracle-trained demo · needs topology; see its limits</span>
       <span class="m-state muted"></span>
     </button>
   </div>
@@ -199,6 +196,8 @@
 
     <p id="run-summary" class="run-summary" aria-live="polite"></p>
     <button class="btn primary big" id="run"><span id="run-spin" class="spin" hidden></span><span id="run-label">Run scoring</span></button>
+    <button class="btn secondary big" id="compare-all"><span id="compare-label">Compare all 5 models</span></button>
+    <p class="quiet">Comparison runs each model separately on the same input. It shows rankings and top-10 agreement; it does not combine scores into one suspect list.</p>
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <div id="run-progress" class="state-card warn hidden"><span id="progress-msg"></span></div>
     <div id="run-error" class="state-card err hidden" role="alert"><strong>Scoring failed.</strong> <span id="run-error-msg"></span>
@@ -250,6 +249,20 @@
       <button class="tab" role="tab" id="tab-dts"     aria-controls="pane-dts"     aria-selected="false" data-tab="dts">Transformers</button>
       <button class="tab" role="tab" id="tab-balance" aria-controls="pane-balance" aria-selected="false" data-tab="balance">Energy balance</button>
       <button class="tab" role="tab" id="tab-expl"    aria-controls="pane-expl"    aria-selected="false" data-tab="explanation">Explanation</button>
+      <button class="tab" role="tab" id="tab-compare" aria-controls="pane-compare" aria-selected="false" data-tab="compare">Compare models</button>
+    </div>
+
+    <div class="card tabpane hidden" id="pane-compare" role="tabpanel" aria-labelledby="tab-compare">
+      <h2>Separate rankings · same input</h2>
+      <p class="hint">Each column is that model’s own rank; a dash means it did not place the meter in its top ten. “Top-10 agreement” counts how many models independently placed a meter there. This is a comparison aid, not a combined score or a finding of theft.</p>
+      <p id="compare-summary" class="quiet">Run “Compare all 5 models” to populate this view.</p>
+      <div class="scroll">
+        <table id="compare-table" class="plain">
+          <caption class="sr-only">Independent model ranks and number of models placing each meter in their top ten</caption>
+          <thead><tr><th>Meter</th><th>DT</th><th>M0 rank</th><th>M1 rank</th><th>M2 rank</th><th>M3 rank</th><th>M4 rank</th><th>Top-10 agreement</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card tabpane" id="pane-meters" role="tabpanel" aria-labelledby="tab-meters">
@@ -516,6 +529,7 @@
   <p class="muted">Decision support only. A field inspector verifies every flag. · Synthetic data, not field-validated.</p>
 </footer>
 
-<script src="app.js?v=14"></script>
+<script src="model_comparison.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

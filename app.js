@@ -12,6 +12,7 @@ document.getElementById('docs-link').href = API_BASE + '/docs';
 const $ = id => document.getElementById(id);
 const fmt = (v, d = 3) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const MODEL_IDS = ['M0', 'M1', 'M2', 'M3', 'M4'];
 
 /* ---------- app state ---------- */
 const state = {
@@ -91,10 +92,13 @@ function applyHealthFields(h) {
     card.querySelector('.m-state').textContent = ok ? '' : 'Not loaded in this dataset';
   });
   const priority = ['M0', 'M1'];
-  state.recommended = avail && avail.length ? priority.find(m => avail.includes(m)) : (h.model || 'M0');
+  state.recommended = avail && avail.length
+    ? (avail.includes(h.model) ? h.model : priority.find(m => avail.includes(m)))
+    : (h.model || 'M0');
   document.querySelectorAll('.mcard [data-tag="rec"]').forEach(t => t.classList.add('hidden'));
   const recCard = document.querySelector(`.mcard[data-model="${state.recommended}"]`);
-  if (recCard) recCard.querySelector('[data-tag="rec"]').classList.remove('hidden');
+  const recTag = recCard && recCard.querySelector('[data-tag="rec"]');
+  if (recTag) recTag.classList.remove('hidden');
   if (!state.sampleMode || !state.model || !avail || avail.includes(state.model)) selectModel(state.recommended);
 
   /* scoring window — never hardcoded */
@@ -284,15 +288,18 @@ function severityMeaning(v) {
 function updateSummary() {
   const tam = $('tamper').checked && state.scenario === 'theft' ? ' with a tamper event' : '';
   $('run-summary').textContent =
-    `You are running ${state.model || '…'} on ${state.scenario} @ ${parseFloat($('severity').value).toFixed(2)}${tam}.`;
+    `Single-model run: ${state.model || 'M0'} on ${state.scenario} @ ${parseFloat($('severity').value).toFixed(2)}${tam}. “Compare all 5” runs every model on this same input.`;
 }
 
 /* ---------- run ---------- */
-function setBusy(busy) {
+function setBusy(busy, mode = 'single') {
   $('run').disabled = busy;
-  $('run').setAttribute('aria-busy', String(busy));
-  $('run-spin').hidden = !busy;
-  $('run-label').textContent = busy ? 'Scoring…' : 'Run scoring';
+  $('compare-all').disabled = busy;
+  $('run').setAttribute('aria-busy', String(busy && mode === 'single'));
+  $('compare-all').setAttribute('aria-busy', String(busy && mode === 'compare'));
+  $('run-spin').hidden = !(busy && mode === 'single');
+  $('run-label').textContent = busy && mode === 'single' ? 'Scoring…' : 'Run scoring';
+  $('compare-label').textContent = busy && mode === 'compare' ? 'Comparing…' : 'Compare all 5 models';
   setStepper(busy ? 'run' : (lastResponse ? 'review' : 'choose'));
 }
 function showRunState(which, msg) {
@@ -306,6 +313,7 @@ function showRunState(which, msg) {
 
 async function run() {
   if (!state.model) { setStatus('Choose a model first.', true); return; }
+  clearComparison();
   if (state.sampleMode) { // frontend-only preview: regenerate the clearly-labelled sample
     lastResponse = makeSampleResponse(state.scenario, parseFloat($('severity').value));
     render(lastResponse);
@@ -319,26 +327,11 @@ async function run() {
   setStatus('Scoring…');
 
   /* Payload — EXACT original fields, nothing extra (backend forbids extras). */
-  const body = {
-    model: state.model,
-    scenario: state.scenario,
-    severity: parseFloat($('severity').value),
-    as_of_interval: parseInt($('asof').value, 10),
-    tamper_event: $('tamper').checked,
-  };
-  if (!Number.isFinite(body.as_of_interval)) delete body.as_of_interval; // no window known → backend uses full history
-  if ($('meter').value) body.meter_id = $('meter').value;
+  const body = scorePayload(state.model);
 
   try {
-    const r = await fetchWithRetry(API_BASE + '/score', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
-    }, 6, m => showRunState('progress', m));
-    if (!r.ok) {
-      const d = await r.json().catch(() => ({}));
-      throw new Error(d.detail || ('HTTP ' + r.status));
-    }
+    const j = await postScore(body, m => showRunState('progress', m));
     showRunState(null);
-    const j = await r.json();
     render(j);
     const flagged = j.meters.filter(m => m.inspection_flag).length;
     setStatus(`Done — ${flagged} of ${j.meters.length} meters met the operating point in ${fmt(j.runtime_seconds, 2)} s.`);
@@ -352,6 +345,96 @@ async function run() {
   } finally {
     setBusy(false);
   }
+}
+
+function clearComparison() {
+  if ($('compare-table')) $('compare-table').tBodies[0].innerHTML = '';
+  if ($('compare-summary')) $('compare-summary').textContent = 'Run “Compare all 5 models” to populate this view.';
+}
+
+function scorePayload(model) {
+  const body = {
+    model,
+    scenario: state.scenario,
+    severity: parseFloat($('severity').value),
+    as_of_interval: parseInt($('asof').value, 10),
+    tamper_event: $('tamper').checked,
+  };
+  if (!Number.isFinite(body.as_of_interval)) delete body.as_of_interval;
+  if ($('meter').value) body.meter_id = $('meter').value;
+  return body;
+}
+
+async function postScore(body, onAttempt) {
+  const r = await fetchWithRetry(API_BASE + '/score', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }, 6, onAttempt);
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || ('HTTP ' + r.status));
+  }
+  return r.json();
+}
+
+async function runCompareAll() {
+  if (state.sampleMode) {
+    toast('Model comparison needs the live backend; sample mode has no model-specific scores.');
+    return;
+  }
+  const available = state.health && (state.health.models_available || state.health.models);
+  const missing = available && MODEL_IDS.filter(m => !available.includes(m));
+  if (missing && missing.length) {
+    setStatus(`Cannot compare all five: backend does not have ${missing.join(', ')} loaded.`, true);
+    return;
+  }
+
+  clearComparison();
+  const requests = GridGNNCompare.buildCompareRequests(scorePayload(state.model || 'M0'), MODEL_IDS);
+  const responses = [];
+  let currentModel = null;
+  setBusy(true, 'compare');
+  showRunState('progress', 'Starting model comparison…');
+  setStatus('Comparing all five models on the same input…');
+  try {
+    for (let i = 0; i < requests.length; i++) {
+      currentModel = requests[i].model;
+      showRunState('progress', `Running ${currentModel} (${i + 1} of ${requests.length})…`);
+      const response = await postScore(requests[i], m =>
+        showRunState('progress', `${currentModel}: ${m}`));
+      if (response.model !== currentModel) {
+        throw new Error(`Backend returned ${response.model || 'an unnamed model'} instead of ${currentModel}`);
+      }
+      responses.push(response);
+    }
+    const primary = responses.find(r => r.model === 'M0') || responses[0];
+    render(primary);
+    renderComparison(responses);
+    showRunState(null);
+    setStatus('Comparison complete. Rankings remain separate; the agreement count is not a combined score.');
+    location.hash = '#/results?tab=compare';
+    navigate();
+  } catch (e) {
+    showRunState('error', `${currentModel || 'Model comparison'} failed: ${e.message}. No partial comparison is shown.`);
+    $('run-sample').classList.remove('hidden');
+    setStatus('Model comparison failed: ' + e.message, true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderComparison(responses) {
+  const rows = GridGNNCompare.buildTopTenAgreement(responses, 10);
+  const body = $('compare-table').tBodies[0];
+  body.innerHTML = '';
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(row.meter_id)}</td><td>${esc(row.dt_id)}</td>` +
+      MODEL_IDS.map(model => `<td>${row.ranks[model] ?? '—'}</td>`).join('') +
+      `<td><strong>${row.top10_count}/5</strong></td>`;
+    body.appendChild(tr);
+  }
+  $('compare-summary').textContent =
+    `All 5 models scored the same input. Showing ${rows.length} meters that at least one model placed in its top 10. Agreement means only “included in more models’ top 10”; it is not a probability or finding of theft.`;
 }
 
 /* ---------- guided demo ---------- */
@@ -703,7 +786,7 @@ function setStepper(step) {
 }
 function activateTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
-  document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('hidden', p.id !== 'pane-' + ({ meters: 'meters', dts: 'dts', balance: 'balance', explanation: 'expl' }[name])));
+  document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('hidden', p.id !== 'pane-' + ({ meters: 'meters', dts: 'dts', balance: 'balance', explanation: 'expl', compare: 'compare' }[name])));
   refreshVisibleCharts();
 }
 function navigate() {
@@ -731,7 +814,7 @@ function navigate() {
   $('empty-results').classList.toggle('hidden', has);
   $('results-body').classList.toggle('hidden', !has);
   if (r === 'results') {
-    activateTab(q.get('tab') && ['meters', 'dts', 'balance', 'explanation'].includes(q.get('tab')) ? q.get('tab') : 'meters');
+    activateTab(q.get('tab') && ['meters', 'dts', 'balance', 'explanation', 'compare'].includes(q.get('tab')) ? q.get('tab') : 'meters');
   }
   setStepper();
   window.scrollTo(0, 0);
@@ -765,6 +848,7 @@ document.querySelectorAll('.btn[data-preset]').forEach(b => b.addEventListener('
   toast('Preset applied — review and press Run scoring.');
 }));
 $('run').addEventListener('click', run);
+$('compare-all').addEventListener('click', runCompareAll);
 $('btn-guided').addEventListener('click', guidedDemo);
 $('empty-guided').addEventListener('click', guidedDemo);
 $('btn-retry').addEventListener('click', boot);
