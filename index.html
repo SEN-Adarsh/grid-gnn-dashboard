@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Grid-GNN - Inspection decision support</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231F5A46'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='%23F6F3EC'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -300,21 +300,22 @@
     <h2>Scoring pipeline</h2>
     <div class="pipeline" aria-label="Scoring pipeline from stored AMI and DT readings through model scoring and field review outputs">
       <ol class="pipeline-steps">
-        <li><span class="step-index">1</span><strong>Stored AMI and DT readings</strong><small>Meter intervals and transformer input measurements</small></li>
-        <li><span class="step-index">2</span><strong>Causal imputation</strong><small>Fills missing intervals using prior available history</small></li>
-        <li><span class="step-index">3</span><strong>DT power-flow and residual</strong><small>Estimates technical losses and unexplained energy</small></li>
-        <li><span class="step-index">4</span><strong>Feature engineering</strong><small>Own history, DT/peer context, and temporal sequence inputs</small></li>
-        <li><span class="step-index">5</span><strong>Selected method scoring</strong><small>The five scoring methods use distinct features and model approaches</small></li>
-        <li><span class="step-index">6</span><strong>Calibration and threshold</strong><small>Applies the selected operating point</small></li>
+        <li><span class="step-index">Step 1</span><strong>Stored AMI and DT readings</strong><small>Meter intervals and transformer input measurements</small></li>
+        <li><span class="step-index">Step 2</span><strong>Causal imputation</strong><small>Fills missing intervals using prior available history</small></li>
+        <li><span class="step-index">Step 3</span><strong>DT power-flow and residual</strong><small>Estimates technical losses and unexplained energy</small></li>
+        <li><span class="step-index">Step 4</span><strong>Feature engineering</strong><small>Own history, DT/peer context, and temporal sequence inputs</small></li>
+        <li><span class="step-index">Step 5</span><strong>Selected method scoring</strong><small>The five scoring methods use distinct features and model approaches</small></li>
+        <li><span class="step-index">Step 6</span><strong>Calibration and threshold</strong><small>Applies the selected operating point</small></li>
       </ol>
+      <p class="pipeline-branch-label">Scoring produces two related outputs:</p>
       <div class="pipeline-outputs" aria-label="Related meter and transformer outputs">
         <div class="pipeline-output"><strong>Ranked meter flags and scores</strong><span>Review candidates, scores, and reason codes</span></div>
         <div class="pipeline-output"><strong>DT unexplained-energy balance</strong><span>Transformer-level residual and daily balance</span></div>
       </div>
       <ol class="pipeline-steps pipeline-steps-final" start="7">
-        <li><span class="step-index">7</span><strong>4-way loss attribution</strong><small>Technical loss, tamper anomaly, defective/frozen metering, and upstream hooking</small></li>
-        <li><span class="step-index">8</span><strong>Work-order routing</strong><small>Suggested action, owner, service target, and MIS code</small></li>
-        <li><span class="step-index">9</span><strong>Response, provenance, and audit log</strong><small>Runtime and internal model/config provenance; score events are logged</small></li>
+        <li><span class="step-index">Step 7</span><strong>4-way loss attribution</strong><small>Technical loss, tamper anomaly, defective/frozen metering, and upstream hooking</small></li>
+        <li><span class="step-index">Step 8</span><strong>Work-order routing</strong><small>Suggested action, owner, service target, and MIS code</small></li>
+        <li><span class="step-index">Step 9</span><strong>Response, provenance, and audit log</strong><small>Runtime and internal model/config provenance; score events are logged</small></li>
       </ol>
       <p class="hint">The meter ranking and DT balance are related outputs from shared telemetry and physics features. Loss attribution and work-order fields are heuristic decision-support outputs that require field verification.</p>
     </div>
@@ -413,7 +414,7 @@
 
   <div class="card">
     <h2>Data and scope</h2>
-    <p>The served demonstration uses synthetic <code>synthetic_india_v2</code> telemetry and a reference topology. It has no real field-validation claim. Scenario counterfactuals are applied to a copy of the stored demo telemetry.</p>
+    <p>The served demo uses the <code>synthetic_india_v2</code> profile and reference topology. It has no real field-validation claim. Scenario counterfactuals are applied to a copy of the stored demo telemetry.</p>
     <p>The repository contains no customer PII or committed secrets. The IES-aligned design has no central customer-data database. The hosted demonstration uses its packaged synthetic context; utility integrations must keep raw telemetry within the utility-controlled data boundary.</p>
   </div>
   <div class="card">
@@ -488,7 +489,7 @@
   <p class="muted">Decision support only. A field inspector verifies every flag.</p>
 </footer>
 
-<script src="model_comparison.js?v=18"></script>
-<script src="app.js?v=18"></script>
+<script src="model_comparison.js?v=19"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>
