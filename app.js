@@ -116,7 +116,6 @@ function applyHealthFields(h) {
   $('fact-dataset').textContent = h.profile_source || '—';
   $('fact-model').textContent = h.model || '—';
   $('fact-window').textContent = h.scoring_window ? `${h.scoring_window.min}–${h.scoring_window.max} intervals` : '—';
-  $('fact-config').textContent = h.config_hash || '—';
   $('fact-note').textContent = h.models_note || '—';
   $('home-skeleton').classList.add('hidden');
   $('home-facts').classList.remove('hidden');
@@ -156,7 +155,6 @@ async function boot() {
 const SAMPLE_HEALTH = {
   profile_source: 'synthetic_india_v2 (sample)',
   model: 'M0',
-  config_hash: 'sample-mode',
   models_available: ['M0', 'M1', 'M2', 'M3', 'M4'],
   models_note: 'Sample mode — this note is static; no backend is connected.',
   scoring_window: { min: 1344, max: 1344 },
@@ -222,7 +220,6 @@ function makeSampleResponse(scenario, severity) {
   }
   return {
     model: state.model || 'M0', profile_source: 'synthetic_india_v2 (sample)',
-    config_hash: 'sample-mode', model_sha256: 'sample00000000deadbeef00000000feedface000000',
     as_of_interval: 1344, as_of_time: '2026-06-14T23:45:00+05:30',
     telemetry_mode: 'recorded sample', scenario,
     operating_point: { threshold, target_precision: 0.7, validation_target_met: true, validation_flags: 6, validation_precision: 0.73, validation_recall: 0.58 },
@@ -485,12 +482,6 @@ function render(j) {
   $('kpi-thresh').textContent = fmt(op.threshold, 3);
   $('kpi-top').textContent = fmt(j.dts[0]?.unexplained_kwh, 1);
   $('kpi-rt').textContent = fmt(j.runtime_seconds, 2);
-  const sha = j.model_sha256 || '';
-  $('kpi-sha').textContent = sha ? sha.slice(0, 12) : '—';
-  $('kpi-sha').parentElement.title = sha ? 'SHA-256 of the loaded model artifact.\nFull hash: ' + sha : 'No model hash in the response.';
-  $('kpi-config').textContent = (j.config_hash || (state.health && state.health.config_hash) || '—');
-  $('kpi-config').parentElement.title = 'Identifies the exact backend configuration bundle for this run.\nconfig_hash: ' + $('kpi-config').textContent;
-
   renderMeters(j);
 
   /* transformers with inline bars */
@@ -535,7 +526,7 @@ function render(j) {
 
   /* provenance */
   $('prov-meta').textContent =
-    `model ${j.model || '—'} · sha ${(sha || '—').slice(0, 12)} · config ${j.config_hash || '—'} · scenario ${j.scenario || '—'} · telemetry_mode ${j.telemetry_mode || '—'} · as_of_interval ${j.as_of_interval ?? '—'}`;
+    `model ${j.model || '—'} · scenario ${j.scenario || '—'} · telemetry_mode ${j.telemetry_mode || '—'} · as_of_interval ${j.as_of_interval ?? '—'}`;
   const notesHtml = (j.notes || []).map(n => `<li>${esc(n)}</li>`).join('');
   $('notes').innerHTML = notesHtml;
   $('about-notes').innerHTML = notesHtml || '<li class="muted">No run yet — notes appear after your first scoring run.</li>';
@@ -685,10 +676,8 @@ function downloadCSV() {
   if (!lastResponse) return;
   const cols = ['rank', 'meter_id', 'dt_id', 'probability_simulated_theft', 'inspection_flag',
     'candidate_kwh_allocation', 'recorded_to_baseline_ratio', 'missing_fraction', 'reason_codes',
-    'recommended_action', 'assigned_owner', 'target_sla', 'rdss_mis_code',
-    'model_sha256', 'config_hash'];
-  const rows = lastResponse.meters.map(m => ({ ...m,
-    model_sha256: lastResponse.model_sha256, config_hash: lastResponse.config_hash }));
+    'recommended_action', 'assigned_owner', 'target_sla', 'rdss_mis_code'];
+  const rows = lastResponse.meters;
   saveCsv('rdss-mis-work-orders.csv', cols, rows);
   toast('RDSS MIS work-order CSV exported');
 }
@@ -698,24 +687,20 @@ function downloadDTCsv() {
     'candidate_allocated_kwh', 'unassigned_kwh', 'missing_fraction',
     'technical_loss_kwh', 'meter_tamper_anomaly_kwh', 'defective_frozen_metering_kwh',
     'unmetered_direct_hooking_kwh',
-    'recommended_action', 'assigned_owner', 'target_sla', 'rdss_mis_code',
-    'model_sha256', 'config_hash'];
-  const rows = lastResponse.dts.map(d => ({ ...d, ...(d.loss_attribution || {}),
-    model_sha256: lastResponse.model_sha256, config_hash: lastResponse.config_hash }));
+    'recommended_action', 'assigned_owner', 'target_sla', 'rdss_mis_code'];
+  const rows = lastResponse.dts.map(d => ({ ...d, ...(d.loss_attribution || {}) }));
   saveCsv('rdss-mis-transformer-work-orders.csv', cols, rows);
   toast('Transformer work-order CSV exported');
 }
 
-function downloadFilingObject() {
+function downloadRunSummary() {
   if (!lastResponse) return;
-  const isSample = (lastResponse.model_sha256 || '').startsWith('sample');
-  const filing = {
-    standard: 'IES v0.4 A1.7 DISCOM-Regulator Filing Object',
+  const summary = {
+    title: 'Grid-GNN scoring run summary',
     timestamp: new Date().toISOString(),
-    config_hash: isSample ? '6e60f7bd16aff2ef' : lastResponse.config_hash,
-    model_sha256: isSample ? 'sample-mode (no live model)' : lastResponse.model_sha256,
     model: lastResponse.model,
-    profile_source: isSample ? 'synthetic_india_v2' : lastResponse.profile_source,
+    profile_source: lastResponse.profile_source,
+    scenario: lastResponse.scenario,
     scoring_window: lastResponse.scoring_window || null,
     meters_count: lastResponse.meters.length,
     dts_count: lastResponse.dts.length,
@@ -742,13 +727,13 @@ function downloadFilingObject() {
       rdss_mis_code: m.rdss_mis_code,
     })),
   };
-  const blob = new Blob([JSON.stringify(filing, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(summary, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'ies-a17-filing-object.json';
+  a.download = 'grid-gnn-run-summary.json';
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(a.href);
-  toast('IES A1.7 Filing Object exported');
+  toast('Run summary exported');
 }
 
 /* ---------- router ---------- */
@@ -858,7 +843,7 @@ $('run-sample').addEventListener('click', loadSample);
 $('exit-sample').addEventListener('click', exitSample);
 $('btn-csv').addEventListener('click', downloadCSV);
 $('btn-csv-dt').addEventListener('click', downloadDTCsv);
-$('btn-filing').addEventListener('click', downloadFilingObject);
+$('btn-summary').addEventListener('click', downloadRunSummary);
 $('flag-only').addEventListener('change', e => { flagOnly = e.target.checked; if (lastResponse) renderMeters(lastResponse); });
 $('meter-search').addEventListener('input', e => { state.search = e.target.value; if (lastResponse) renderMeters(lastResponse); });
 $('dt-pick').addEventListener('change', () => { if (lastResponse) drawBalance(lastResponse); });

@@ -177,7 +177,7 @@ label.check input,label.inline input{width:auto;accent-color:var(--brand)}
 .state-err{color:var(--risk);font-weight:600}
 
 /* ---------- KPIs ---------- */
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
 .kpi{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;box-shadow:var(--shadow)}
 .kpi-num{font-size:22px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .kpi-num.small-num{font-size:14px;padding-top:5px}

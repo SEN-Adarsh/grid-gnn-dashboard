@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { buildCompareRequests, buildTopTenAgreement } = require('./model_comparison.js');
 
 function response(model, topMeters) {
@@ -48,4 +49,23 @@ test('buildCompareRequests preserves one input payload and varies only the model
     assert.deepEqual({ ...request, model: input.model }, input);
   }
   assert.equal(input.model, 'M3');
+});
+
+test('public dashboard and downloads omit internal build fingerprints', () => {
+  const html = fs.readFileSync('./index.html', 'utf8');
+  const app = fs.readFileSync('./app.js', 'utf8');
+  const identifiers = [
+    ['SHA', '256'].join('-'),
+    ['config', 'hash'].join(' '),
+    ['config', 'hash'].join('_'),
+    ['model', 'sha256'].join('_'),
+    ['6e60', 'f7bd', '16af', 'f2bd'].join(''),
+  ];
+
+  for (const identifier of identifiers) {
+    assert.equal(html.includes(identifier), false, `HTML still contains ${identifier}`);
+    assert.equal(app.includes(identifier), false, `app.js still contains ${identifier}`);
+  }
+  assert.match(html, /Download run summary \(JSON\)/);
+  assert.doesNotMatch(html, /Download IES A1\.7 Filing Object/);
 });

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Grid-GNN — Inspection decision support</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231F5A46'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='%23F6F3EC'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -65,7 +65,7 @@
   <div class="value-cards">
     <div class="card vcard"><h3>Rank</h3><p>An ordered list of meters to review first, each with a suspicion score and the reasons behind it.</p></div>
     <div class="card vcard"><h3>Locate</h3><p>Unexplained kWh at every distribution transformer — where energy was delivered but never billed.</p></div>
-    <div class="card vcard"><h3>Trace</h3><p>Every result carries the model hash, config hash, and an audit trail — full accountability for each run.</p></div>
+    <div class="card vcard"><h3>Explain</h3><p>Each ranking includes reason codes to help a field inspector review the result.</p></div>
   </div>
 
   <div class="card">
@@ -94,7 +94,6 @@
       <div><dt>Dataset</dt><dd id="fact-dataset">—</dd></div>
       <div><dt>Loaded model</dt><dd id="fact-model">—</dd></div>
       <div><dt>Scoring window</dt><dd id="fact-window">—</dd></div>
-      <div><dt>Config hash</dt><dd id="fact-config" class="mono">—</dd></div>
       <div class="span2"><dt>Training note</dt><dd id="fact-note">—</dd></div>
     </dl>
   </div>
@@ -238,10 +237,6 @@
         <div class="kpi-num" id="kpi-top">—</div><div class="kpi-label">top unexplained DT kWh</div></div>
       <div class="kpi"><span class="k-ico" title="Wall-clock time for the scoring run">ⓘ</span>
         <div class="kpi-num" id="kpi-rt">—</div><div class="kpi-label">runtime s</div></div>
-      <div class="kpi"><span class="k-ico" title="SHA-256 fingerprint of the loaded model artifact — hover for the full hash">ⓘ</span>
-        <div class="kpi-num mono small-num" id="kpi-sha">—</div><div class="kpi-label">model sha-256 (first 12)</div></div>
-      <div class="kpi"><span class="k-ico" title="Identifies the exact backend configuration bundle for this run">ⓘ</span>
-        <div class="kpi-num mono small-num" id="kpi-config">—</div><div class="kpi-label">config hash</div></div>
     </div>
 
     <div class="tabs" role="tablist" aria-label="Result views">
@@ -272,7 +267,7 @@
         <span id="meter-count" class="muted"></span>
         <button class="btn small secondary" id="btn-csv" title="Ranked meters with action, owner, SLA and RDSS MIS code">Export RDSS MIS work-orders (CSV)</button>
         <button class="btn small secondary" id="btn-csv-dt" title="Transformer 4-way loss split with work orders">Transformer work-orders (CSV)</button>
-        <button class="btn small secondary" id="btn-filing" title="IES A1.7 DISCOM-Regulator Filing Object (JSON)">Download IES A1.7 Filing Object (JSON)</button>
+        <button class="btn small secondary" id="btn-summary" title="Download a summary of this scoring run">Download run summary (JSON)</button>
       </div>
       <div class="scroll">
         <table id="meters-table">
@@ -370,13 +365,13 @@
   <div class="card">
     <h2>Architecture</h2>
     <div class="svgwrap">
-    <svg viewBox="0 0 960 170" role="img" aria-label="Architecture: browser client, FastAPI health and score endpoints, scoring engine with context, models, config and SHA-256, modules, audit log">
+    <svg viewBox="0 0 960 170" role="img" aria-label="Architecture: browser client, FastAPI health and score endpoints, scoring engine with context, models, modules, and audit log">
       <g font-size="12" fill="#222B2E">
         <rect x="8" y="55" width="170" height="60" rx="8" class="svg-box"/><text x="93" y="80" text-anchor="middle">Browser client</text><text x="93" y="97" text-anchor="middle">static HTML/JS · Plotly</text>
         <rect x="238" y="20" width="180" height="34" rx="8" class="svg-box"/><text x="328" y="42" text-anchor="middle">GET /health</text>
         <rect x="238" y="112" width="180" height="34" rx="8" class="svg-box"/><text x="328" y="134" text-anchor="middle">POST /score</text>
         <rect x="470" y="55" width="200" height="60" rx="8" class="svg-box brand"/><text x="570" y="80" text-anchor="middle">FastAPI + scoring engine</text><text x="570" y="97" text-anchor="middle">strict validation · audit log</text>
-        <rect x="722" y="14" width="230" height="46" rx="8" class="svg-box"/><text x="837" y="32" text-anchor="middle">context · models · config hash</text><text x="837" y="48" text-anchor="middle">model SHA-256 · selected_model.json</text>
+        <rect x="722" y="14" width="230" height="46" rx="8" class="svg-box"/><text x="837" y="32" text-anchor="middle">stored context · models</text><text x="837" y="48" text-anchor="middle">selected scoring method</text>
         <rect x="722" y="112" width="230" height="46" rx="8" class="svg-box"/><text x="837" y="130" text-anchor="middle">sim/physics · features/build</text><text x="837" y="146" text-anchor="middle">models · explanations</text>
         <g stroke="#6B6F6A" fill="none" marker-end="url(#arr)">
           <path d="M178 75 L200 75 L200 37 L238 37"/><path d="M178 95 L200 95 L200 129 L238 129"/>
@@ -391,7 +386,7 @@
   <div class="value-cards">
     <div class="card vcard"><h3>Label-free training</h3><p>Features come from each meter's own history and its neighbourhood — never from hidden theft labels.</p></div>
     <div class="card vcard"><h3>Predeclared precision target</h3><p>The flag threshold is fixed before evaluation against a 0.70 precision target. If the target is unattainable, flagging switches off.</p></div>
-    <div class="card vcard"><h3>Traceability &amp; audit</h3><p>Every response carries the model SHA-256, config hash, and an append-only audit entry: who ran what, when, with what result.</p></div>
+    <div class="card vcard"><h3>Reviewable results</h3><p>Each run shows its selected model, scenario, ranking, and reason codes. Flags remain requests for human review.</p></div>
   </div>
 
   <div class="card">
@@ -454,7 +449,7 @@
       <li><strong>No enforcement is automated</strong> — no disconnection, penalty, or customer notification exists in this system.</li>
       <li>Flagging fail-safes off when the predeclared precision target is unattainable.</li>
       <li>The audit log is written to container storage and is <strong>ephemeral</strong> — it resets on restart. It is not production-grade record keeping.</li>
-      <li>Traceability: every response carries the model SHA-256, config hash, and provenance notes.</li>
+      <li>Run details and scoring outcomes are recorded in the service audit log for review.</li>
     </ul>
   </div>
   <div class="card">
@@ -474,10 +469,10 @@
       <tbody>
         <tr><td>WHO — Identity &amp; Addressing</td><td>Core</td><td><code>meter_id</code> / <code>dt_id</code> map to federated asset &amp; consumer identifiers (A1.4, Page 23); prevents GIS-to-MDMS mismatches (Scenario 2, Page 7)</td></tr>
         <tr><td>WHERE — Registries &amp; Directories</td><td>Supporting</td><td>DER Visibility Registry (A1.2, Page 22) for prosumer reverse-flow recognition; DISCOM MDMS/GIS endpoint discovery</td></tr>
-        <tr><td>HOW — Interaction Protocols</td><td>Core</td><td>Stateless <code>POST /score</code> flow bound by <code>config_hash</code> + <code>model_sha256</code> (ready for API Setu / OpenForge, Section 11, Page 20)</td></tr>
-        <tr><td>WHAT (Public) — Public Data Exchange</td><td>Supporting</td><td>Policy Pack (A1.6, Pages 23-24): AC power-flow conservation + 70%/50% precision thresholds with abstention; config_hash <code>6e60f7bd16aff2ef</code></td></tr>
+        <tr><td>HOW — Interaction Protocols</td><td>Core</td><td>Stateless <code>POST /score</code> flow for sending interval telemetry and receiving ranked review candidates (ready for API Setu / OpenForge, Section 11, Page 20)</td></tr>
+        <tr><td>WHAT (Public) — Public Data Exchange</td><td>Supporting</td><td>Policy Pack (A1.6, Pages 23-24): AC power-flow conservation + 70%/50% precision thresholds with abstention</td></tr>
         <tr><td>WHAT (Private) — Permissioned Data Exchange</td><td>Core</td><td>15-minute AMI &amp; DT telemetry (<code>readings[]</code>, <code>dt_readings[]</code>); this demo uses synthetic telemetry and no PII. A deployment using personal data requires utility-led assessment of lawful basis, purpose, consent where applicable, and safeguards (Data Federation, Page 10; NPSDP/DPDP, Pages 5, 20)</td></tr>
-        <tr><td>PROOF — Energy Credentials</td><td>Core</td><td>Append-only audit log exportable as IES A1.7 Filing Object (Pages 13, 24) for SERC loss-truing and Electricity Act s.126/s.135</td></tr>
+        <tr><td>PROOF — Energy Credentials</td><td>Core</td><td>The service records scoring activity for internal review; the browser download is a run summary, not a regulatory filing</td></tr>
       </tbody>
     </table>
     <p class="quiet">Machine-readable manifest: <code>GET /ies/manifest</code> on the API · live alignment block in <code>GET /health</code>. Scenarios addressed: Scenario 2 (GIS mismatch, Page 7), Scenario 4 (integration loops, Pages 7-8). Risks addressed: Risk 2 (uneven AMI, Pages 20-21), Risk 5 (quality at scale, Pages 20-21).</p>
@@ -529,7 +524,7 @@
   <p class="muted">Decision support only. A field inspector verifies every flag. · Synthetic data, not field-validated.</p>
 </footer>
 
-<script src="model_comparison.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="model_comparison.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
